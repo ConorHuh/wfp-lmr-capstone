@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+
+from lmr.common.s3 import get_s3_client
+from lmr.config import AppConfig, DatasetConfig
+
+logger = logging.getLogger("lmr")
+
+
+def build_s3_key(
+    template: str,
+    prefix: str,
+    dataset_name: str,
+    date: str,
+    asset: str,
+) -> str:
+    return template.format(
+        prefix=prefix,
+        dataset=dataset_name,
+        date=date,
+        asset=asset,
+    )
+
+
+def upload_file(local_path: Path, bucket: str, key: str, region: str = "us-east-1") -> str:
+    s3 = get_s3_client(region)
+    logger.info("Uploading %s -> s3://%s/%s", local_path, bucket, key)
+    s3.upload_file(str(local_path), bucket, key)
+    return f"s3://{bucket}/{key}"
+
+
+def get_last_ingested_date(
+    bucket: str,
+    prefix: str,
+    dataset_name: str,
+    region: str = "us-east-1",
+) -> datetime | None:
+    """Check S3 for the latest ingested date for a dataset.
+
+    Returns None if no data has been ingested yet.
+    """
+    s3 = get_s3_client(region)
+    dataset_prefix = f"{prefix}/{dataset_name}/"
+
+    try:
+        response = s3.list_objects_v2(
+            Bucket=bucket,
+            Prefix=dataset_prefix,
+            Delimiter="/",
+        )
+    except Exception:
+        logger.warning("Could not list objects in s3://%s/%s", bucket, dataset_prefix)
+        return None
+
+    common_prefixes = response.get("CommonPrefixes", [])
+    if not common_prefixes:
+        return None
+
+    # Date folders look like: ingested/ndvi-sentinel2/2026-03-01/
+    dates = []
+    for cp in common_prefixes:
+        folder = cp["Prefix"].rstrip("/").split("/")[-1]
+        try:
+            dates.append(datetime.strptime(folder, "%Y-%m-%d").replace(tzinfo=timezone.utc))
+        except ValueError:
+            continue
+
+    if not dates:
+        return None
+
+    latest = max(dates)
+    logger.info("Last ingested date for %s: %s", dataset_name, latest.date())
+    return latest
+
+
+def write_manifest(
+    bucket: str,
+    datasets_results: list[dict],
+    region: str = "us-east-1",
+) -> str:
+    """Write an ingest manifest JSON to S3.
+
+    Args:
+        bucket: S3 bucket name.
+        datasets_results: List of per-dataset result dicts with keys:
+            name, items_ingested, s3_keys, stac_items
+        region: AWS region.
+
+    Returns:
+        S3 URI of the manifest file.
+    """
+    now = datetime.now(timezone.utc)
+    run_id = f"ingest-{now.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+
+    manifest = {
+        "run_id": run_id,
+        "timestamp": now.isoformat(),
+        "datasets_processed": datasets_results,
+        "status": "success",
+    }
+
+    key = f"manifests/{run_id}.json"
+    s3 = get_s3_client(region)
+    s3.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=json.dumps(manifest, indent=2),
+        ContentType="application/json",
+    )
+
+    uri = f"s3://{bucket}/{key}"
+    logger.info("Wrote manifest: %s", uri)
+    return uri

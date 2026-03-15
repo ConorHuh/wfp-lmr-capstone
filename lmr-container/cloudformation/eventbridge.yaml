@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — EventBridge Scheduled Rule"
+
+Parameters:
+  Environment:
+    Type: String
+  ScheduleIntervalDays:
+    Type: Number
+  ClusterArn:
+    Type: String
+  TaskDefinitionArn:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  EventBridgeRoleArn:
+    Type: String
+
+Resources:
+  ScheduledRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "lmr-ingest-schedule-${Environment}"
+      Description: "Trigger LMR ingest on a recurring schedule"
+      ScheduleExpression: !Sub "rate(${ScheduleIntervalDays} days)"
+      State: ENABLED
+      Targets:
+        - Id: LMRIngestTask
+          Arn: !Ref ClusterArn
+          RoleArn: !Ref EventBridgeRoleArn
+          EcsParameters:
+            TaskDefinitionArn: !Ref TaskDefinitionArn
+            TaskCount: 1
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: ENABLED
+                Subnets: !Ref SubnetIds

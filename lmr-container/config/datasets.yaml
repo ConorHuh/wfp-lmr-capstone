@@ -1,0 +1,61 @@
+# datasets.yaml — LMR Data Platform Configuration
+
+# Global settings
+global:
+  region: "us-east-1"
+  schedule_interval_days: 8
+  s3_bucket: "lmr-data-cogs"
+  s3_prefix: "ingested"
+  log_level: "INFO"
+
+# Area of interest — full Kenya extent for ingestion
+aoi:
+  name: "kenya"
+  # Bounding box [west, south, east, north] — full Kenya
+  bbox: [33.91, -4.80, 41.91, 5.41]
+
+# Admin boundary levels for downstream filtering and zonal stats
+# Ingestion pulls country-wide data; admin_levels control what gets stats
+admin_levels:
+  - level: 3
+    name: "wards"
+    boundary_file: "boundaries/kenya_wards.geojson"
+    id_field: "pcode"
+    name_field: "iebc_wards"
+    filter:
+      field: "first_dist"
+      values: ["Marsabit"]
+
+# STAC catalog configuration
+stac:
+  catalog_url: "https://planetarycomputer.microsoft.com/api/stac/v1"
+  requires_signing: true
+
+# Dataset definitions — add new datasets by appending to this list
+datasets:
+  - name: "ndvi-sentinel2"
+    enabled: true
+    collection: "sentinel-2-l2a"
+    assets: ["B04", "B08"]
+    query_filters:
+      eo:cloud_cover:
+        lt: 30
+    temporal:
+      lookback_days: 16
+    processing:
+      output_format: "cog"
+      resolution_m: 30
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "rainfall-chirps"
+    enabled: true
+    collection: "chirps-daily"
+    assets: ["precip"]
+    temporal:
+      lookback_days: 16
+    processing:
+      output_format: "cog"
+      resolution_m: 5000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"

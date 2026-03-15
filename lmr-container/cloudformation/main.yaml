@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR Data Platform — Root Stack"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: "dev"
+    AllowedValues: ["dev", "staging", "prod"]
+  ScheduleIntervalDays:
+    Type: Number
+    Default: 8
+  ContainerImageTag:
+    Type: String
+    Default: "latest"
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "Existing VPC to deploy into"
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Existing subnets for Fargate tasks and ALB"
+
+Resources:
+  ECRStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./ecr.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        DataBucketArn: !GetAtt S3Stack.Outputs.DataBucketArn
+
+  FargateIngestStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./fargate-ingest.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ContainerImageUri: !Sub
+          - "${RepoUri}:${Tag}"
+          - RepoUri: !GetAtt ECRStack.Outputs.RepositoryUri
+            Tag: !Ref ContainerImageTag
+        TaskRoleArn: !GetAtt IAMStack.Outputs.TaskRoleArn
+        ExecutionRoleArn: !GetAtt IAMStack.Outputs.ExecutionRoleArn
+        SubnetIds: !Join [",", !Ref SubnetIds]
+        VpcId: !Ref VpcId
+
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./eventbridge.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ScheduleIntervalDays: !Ref ScheduleIntervalDays
+        ClusterArn: !GetAtt FargateIngestStack.Outputs.ClusterArn
+        TaskDefinitionArn: !GetAtt FargateIngestStack.Outputs.TaskDefinitionArn
+        SubnetIds: !Join [",", !Ref SubnetIds]
+        EventBridgeRoleArn: !GetAtt IAMStack.Outputs.EventBridgeRoleArn
+
+Outputs:
+  ECRRepositoryUri:
+    Value: !GetAtt ECRStack.Outputs.RepositoryUri
+  DataBucketName:
+    Value: !GetAtt S3Stack.Outputs.DataBucketName
+  ClusterArn:
+    Value: !GetAtt FargateIngestStack.Outputs.ClusterArn

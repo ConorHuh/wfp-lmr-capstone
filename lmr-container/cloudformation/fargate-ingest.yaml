@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — Fargate Ingest Task"
+
+Parameters:
+  Environment:
+    Type: String
+  ContainerImageUri:
+    Type: String
+  TaskRoleArn:
+    Type: String
+  ExecutionRoleArn:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  VpcId:
+    Type: String
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "lmr-cluster-${Environment}"
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/lmr-ingest-${Environment}"
+      RetentionInDays: 30
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "LMR Ingest Fargate task"
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "lmr-ingest-${Environment}"
+      Cpu: "1024"
+      Memory: "4096"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: lmr-container
+          Image: !Ref ContainerImageUri
+          Command:
+            - "--mode"
+            - "ingest"
+            - "--config"
+            - "/app/config/datasets.yaml"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: ingest
+
+Outputs:
+  ClusterArn:
+    Value: !GetAtt Cluster.Arn
+  TaskDefinitionArn:
+    Value: !Ref TaskDefinition
+  SecurityGroupId:
+    Value: !Ref SecurityGroup
