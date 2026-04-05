@@ -1,0 +1,22 @@
+diff --git a/frontend/src/components/MapView/Layers/StaticRasterLayer/utils.ts b/frontend/src/components/MapView/Layers/StaticRasterLayer/utils.ts
+index 31bf202a..252450b1 100644
+--- a/frontend/src/components/MapView/Layers/StaticRasterLayer/utils.ts
++++ b/frontend/src/components/MapView/Layers/StaticRasterLayer/utils.ts
+@@ -7,8 +7,13 @@ export const createStaticRasterLayerUrl = (
+   selectedDate: number | undefined,
+ ) =>
+   dates
+-    ? baseUrl.replace(
+-        `{${DateFormat.DefaultSnakeCase}}`,
+-        getFormattedDate(selectedDate, 'snake') as string,
+-      )
++    ? baseUrl
++        .replace(
++          `{${DateFormat.DefaultSnakeCase}}`,
++          getFormattedDate(selectedDate, 'snake') as string,
++        )
++        .replace(
++          `{${DateFormat.Default}}`,
++          getFormattedDate(selectedDate, 'default') as string,
++        )
+     : baseUrl;

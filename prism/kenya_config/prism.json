@@ -32,6 +32,10 @@
       "surface_reflectance": [
         "modis_sr_red",
         "modis_sr_nir"
+      ],
+      "predictions": [
+        "predictions_mortality",
+        "predictions_risk_level"
       ]
     }
   }
