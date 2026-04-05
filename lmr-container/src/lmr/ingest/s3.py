@@ -77,6 +77,32 @@ def get_last_ingested_date(
     return latest
 
 
+def get_existing_dates(
+    bucket: str,
+    prefix: str,
+    dataset_name: str,
+    region: str = "us-east-1",
+) -> set[str]:
+    """Return the set of date strings already ingested for a dataset."""
+    s3 = get_s3_client(region)
+    dataset_prefix = f"{prefix}/{dataset_name}/"
+
+    try:
+        response = s3.list_objects_v2(
+            Bucket=bucket,
+            Prefix=dataset_prefix,
+            Delimiter="/",
+        )
+    except Exception:
+        return set()
+
+    dates = set()
+    for cp in response.get("CommonPrefixes", []):
+        folder = cp["Prefix"].rstrip("/").split("/")[-1]
+        dates.add(folder)
+    return dates
+
+
 def write_manifest(
     bucket: str,
     datasets_results: list[dict],

@@ -75,19 +75,52 @@ def ensure_cog(src_path: Path, dst_path: Path, processing: ProcessingConfig) -> 
 def clip_to_bbox(src_path: Path, bbox: list[float], dst_path: Path) -> Path:
     """Clip raster to bounding box [west, south, east, north].
 
+    If the source CRS is not geographic (e.g. MODIS sinusoidal), the bbox is
+    reprojected into source CRS coordinates before clipping. If the source
+    raster does not overlap the bbox at all, the file is copied unchanged
+    and a warning is logged.
+
     Args:
         src_path: Input raster path.
-        bbox: Bounding box as [west, south, east, north].
+        bbox: Bounding box as [west, south, east, north] in EPSG:4326.
         dst_path: Output path.
 
     Returns:
         Path to the clipped raster.
     """
+    import shutil
     from rasterio.windows import from_bounds
+    from rasterio.warp import transform_bounds
 
     with rasterio.open(src_path) as src:
-        window = from_bounds(*bbox, transform=src.transform)
+        # Reproject bbox into source CRS if needed
+        src_crs = src.crs
+        if src_crs and not src_crs.is_geographic:
+            clip_bounds = transform_bounds(CRS.from_epsg(4326), src_crs, *bbox)
+        else:
+            clip_bounds = bbox
+
+        # Intersect clip bounds with raster bounds
+        left = max(clip_bounds[0], src.bounds.left)
+        bottom = max(clip_bounds[1], src.bounds.bottom)
+        right = min(clip_bounds[2], src.bounds.right)
+        top = min(clip_bounds[3], src.bounds.top)
+
+        if left >= right or bottom >= top:
+            logger.warning(
+                "Raster %s does not overlap bbox %s, skipping clip", src_path.name, bbox
+            )
+            shutil.copy2(src_path, dst_path)
+            return dst_path
+
+        window = from_bounds(left, bottom, right, top, transform=src.transform)
         data = src.read(window=window)
+
+        if data.shape[1] == 0 or data.shape[2] == 0:
+            logger.warning("Clip produced empty raster for %s, skipping", src_path.name)
+            shutil.copy2(src_path, dst_path)
+            return dst_path
+
         transform = src.window_transform(window)
 
         profile = src.profile.copy()
@@ -104,26 +137,100 @@ def clip_to_bbox(src_path: Path, bbox: list[float], dst_path: Path) -> Path:
     return dst_path
 
 
-def download_asset(item, asset_key: str, work_dir: Path) -> Path:
+def download_asset(item, asset_key: str, work_dir: Path, sign: bool = True, max_retries: int = 3) -> Path:
     """Download a STAC item asset to a local file.
 
+    Re-signs the item before each attempt to avoid SAS token expiry on long runs.
+
     Args:
-        item: pystac Item with signed URLs.
+        item: pystac Item.
         asset_key: Key of the asset to download.
         work_dir: Directory to write the downloaded file.
+        sign: Whether to re-sign the item via Planetary Computer (default True).
+        max_retries: Maximum number of retry attempts on HTTP errors.
 
     Returns:
         Path to the downloaded file.
     """
+    import time
     import urllib.request
+    import urllib.error
 
-    asset = item.assets[asset_key]
-    href = asset.href
     dest = work_dir / f"{item.id}_{asset_key}.tif"
 
-    logger.info("Downloading asset %s from %s", asset_key, href)
-    urllib.request.urlretrieve(href, dest)
+    for attempt in range(max_retries):
+        if sign:
+            import planetary_computer as pc
+            item = pc.sign(item)
+
+        asset = item.assets[asset_key]
+        href = asset.href
+
+        try:
+            logger.info("Downloading asset %s (attempt %d)", asset_key, attempt + 1)
+            urllib.request.urlretrieve(href, dest)
+            return dest
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 429, 500, 502, 503) and attempt < max_retries - 1:
+                wait = 2 ** attempt * 5
+                logger.warning("HTTP %d downloading %s, retrying in %ds", e.code, asset_key, wait)
+                time.sleep(wait)
+            else:
+                raise
+
     return dest
+
+
+def merge_cogs(cog_paths: list[Path], dst_path: Path) -> Path:
+    """Merge multiple COGs covering different areas into a single mosaic COG.
+
+    Used when multiple STAC items (e.g. MODIS sinusoidal tiles) cover the same
+    date but different spatial extents. The merged result preserves the profile
+    of the first input and adds COG overviews.
+
+    Args:
+        cog_paths: List of COG file paths to merge.
+        dst_path: Output merged COG path.
+
+    Returns:
+        Path to the merged COG.
+    """
+    from rasterio.merge import merge
+
+    if len(cog_paths) == 1:
+        import shutil
+        shutil.copy2(cog_paths[0], dst_path)
+        return dst_path
+
+    datasets = [rasterio.open(p) for p in cog_paths]
+    try:
+        mosaic, out_transform = merge(datasets)
+    finally:
+        for ds in datasets:
+            ds.close()
+
+    with rasterio.open(cog_paths[0]) as ref:
+        profile = ref.profile.copy()
+
+    profile.update(
+        width=mosaic.shape[2],
+        height=mosaic.shape[1],
+        transform=out_transform,
+        tiled=True,
+        blockxsize=256,
+        blockysize=256,
+        compress="deflate",
+    )
+
+    with rasterio.open(dst_path, "w", **profile) as dst:
+        dst.write(mosaic)
+
+    with rasterio.open(dst_path, "r+") as dst:
+        dst.build_overviews([2, 4, 8, 16], Resampling.nearest)
+        dst.update_tags(ns="rio_overview", resampling="nearest")
+
+    logger.info("Merged %d COGs into: %s", len(cog_paths), dst_path)
+    return dst_path
 
 
 def _meters_to_degrees(meters: int) -> float:

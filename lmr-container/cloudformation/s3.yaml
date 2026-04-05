@@ -4,6 +4,13 @@ Description: "LMR — S3 Buckets"
 Parameters:
   Environment:
     Type: String
+  SageMakerRoleArn:
+    Type: String
+    Default: ""
+    Description: "ARN of the SageMaker execution role for cross-bucket access (optional)"
+
+Conditions:
+  HasSageMakerRole: !Not [!Equals [!Ref SageMakerRoleArn, ""]]
 
 Resources:
   DataBucket:
@@ -22,6 +29,35 @@ Resources:
             Transitions:
               - StorageClass: STANDARD_IA
                 TransitionInDays: 90
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: HasSageMakerRole
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # SageMaker pipeline can read COGs and manifests
+          - Sid: SageMakerReadAccess
+            Effect: Allow
+            Principal:
+              AWS: !Ref SageMakerRoleArn
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub "${DataBucket.Arn}/*"
+          # SageMaker pipeline can write prediction COGs
+          - Sid: SageMakerWritePredictions
+            Effect: Allow
+            Principal:
+              AWS: !Ref SageMakerRoleArn
+            Action:
+              - s3:PutObject
+            Resource:
+              - !Sub "${DataBucket.Arn}/predictions/*"
 
 Outputs:
   DataBucketName:
