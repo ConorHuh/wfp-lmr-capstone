@@ -60,12 +60,12 @@ def get_last_ingested_date(
     if not common_prefixes:
         return None
 
-    # Date folders look like: ingested/ndvi-sentinel2/2026-03-01/
+    # Date folders look like: ingested/ndvi-sentinel2/2026_03_01/
     dates = []
     for cp in common_prefixes:
         folder = cp["Prefix"].rstrip("/").split("/")[-1]
         try:
-            dates.append(datetime.strptime(folder, "%Y-%m-%d").replace(tzinfo=timezone.utc))
+            dates.append(datetime.strptime(folder, "%Y_%m_%d").replace(tzinfo=timezone.utc))
         except ValueError:
             continue
 

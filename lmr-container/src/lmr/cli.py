@@ -4,18 +4,25 @@ import argparse
 import sys
 import tempfile
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from lmr.common.logging import setup_logging
 from lmr.config import load_config
 
 
-def run_ingest(config_path: str, full_history: bool = False) -> None:
+def run_ingest(
+    config_path: str,
+    full_history: bool = False,
+    start_date_override: datetime | None = None,
+    end_date_override: datetime | None = None,
+) -> None:
     config = load_config(config_path)
     config_dir = Path(config_path).parent
     logger = setup_logging(config.global_.log_level)
     logger.info("Starting ingest run (full_history=%s)", full_history)
+    if start_date_override:
+        logger.info("Date range override: %s to %s", start_date_override, end_date_override or "now")
 
     from lmr.ingest.stac_client import search_stac
     from lmr.ingest.cog import download_asset, clip_to_bbox, ensure_cog, merge_cogs
@@ -49,13 +56,13 @@ def run_ingest(config_path: str, full_history: bool = False) -> None:
         logger.info("Processing dataset: %s", dataset.name)
 
         # Determine start date for incremental ingestion
-        start_date = None
-        if not full_history:
+        start_date = start_date_override
+        if start_date is None and not full_history:
             last_date = get_last_ingested_date(bucket, prefix, dataset.name, region)
             if last_date is not None:
                 start_date = last_date + timedelta(days=1)
 
-        items = search_stac(config, dataset, start_date=start_date)
+        items = search_stac(config, dataset, start_date=start_date, end_date=end_date_override)
 
         if not items:
             logger.info("No new items for %s", dataset.name)
@@ -73,7 +80,7 @@ def run_ingest(config_path: str, full_history: bool = False) -> None:
         items_by_date: dict[str, list] = defaultdict(list)
         for item in items:
             dt = item.datetime or item.common_metadata.start_datetime
-            item_date = dt.strftime("%Y-%m-%d") if dt else "unknown"
+            item_date = dt.strftime("%Y_%m_%d") if dt else "unknown"
             items_by_date[item_date].append(item)
 
         # Skip dates already in S3 to avoid re-downloading
@@ -211,11 +218,34 @@ def main():
         action="store_true",
         help="Ingest all available history instead of incremental",
     )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Override start date for ingest (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="Override end date for ingest (YYYY-MM-DD)",
+    )
 
     args = parser.parse_args()
 
     if args.mode == "ingest":
-        run_ingest(args.config, full_history=args.full_history)
+        start_dt = None
+        end_dt = None
+        if args.start_date:
+            start_dt = datetime.strptime(args.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        if args.end_date:
+            end_dt = datetime.strptime(args.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        run_ingest(
+            args.config,
+            full_history=args.full_history,
+            start_date_override=start_dt,
+            end_date_override=end_dt,
+        )
     elif args.mode == "serve":
         try:
             import uvicorn

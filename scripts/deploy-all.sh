@@ -106,7 +106,7 @@ if [[ "$SKIP_BACKEND" == false ]]; then
     # 1a. Build Docker image
     if [[ "$SKIP_BUILD" == false ]]; then
         echo "  Building Docker image..."
-        docker build -t "lmr-container:${IMAGE_TAG}" .
+        docker build --platform linux/amd64 -t "lmr-container:${IMAGE_TAG}" .
     else
         echo "  Skipping Docker build (--skip-build)"
     fi
