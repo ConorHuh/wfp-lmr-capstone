@@ -39,3 +39,14 @@ def s3_key_exists(bucket: str, key: str, region: str) -> bool:
         return True
     except client.exceptions.ClientError:
         return False
+
+
+def fetch_json_from_s3(bucket: str, key: str, region: str) -> dict | list | None:
+    import json
+
+    client = get_s3_client(region)
+    try:
+        response = client.get_object(Bucket=bucket, Key=key)
+        return json.loads(response["Body"].read())
+    except client.exceptions.NoSuchKey:
+        return None

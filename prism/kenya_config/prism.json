@@ -35,7 +35,8 @@
       ],
       "predictions": [
         "predictions_mortality",
-        "predictions_risk_level"
+        "predictions_risk_level",
+        "predictions_ward_details"
       ]
     }
   }
