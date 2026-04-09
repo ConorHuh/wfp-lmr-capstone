@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — SageMaker Pipeline Trigger (manifest S3 event → Lambda → StartPipelineExecution)"
+
+Parameters:
+  Environment:
+    Type: String
+  SageMakerPipelineArn:
+    Type: String
+    Description: "ARN of the SageMaker pipeline to trigger"
+  DataBucketName:
+    Type: String
+    Description: "Name of the data COGs bucket (source of manifest events)"
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "lmr-sm-trigger-role-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: StartSageMakerPipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:StartPipelineExecution
+                Resource: !Ref SageMakerPipelineArn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${DataBucketName}/manifests/*"
+
+  TriggerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "lmr-sm-trigger-${Environment}"
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          SAGEMAKER_PIPELINE_ARN: !Ref SageMakerPipelineArn
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import boto3
+
+          sm = boto3.client("sagemaker")
+          PIPELINE_ARN = os.environ["SAGEMAKER_PIPELINE_ARN"]
+          # Extract pipeline name from ARN (last segment after '/')
+          PIPELINE_NAME = PIPELINE_ARN.rsplit("/", 1)[-1]
+
+          def handler(event, context):
+              detail = event.get("detail", {})
+              bucket = detail.get("bucket", {}).get("name", "")
+              key = detail.get("object", {}).get("key", "")
+              manifest_uri = f"s3://{bucket}/{key}"
+              print(f"Triggering pipeline {PIPELINE_NAME} with manifest: {manifest_uri}")
+              response = sm.start_pipeline_execution(
+                  PipelineName=PIPELINE_NAME,
+                  PipelineParameters=[
+                      {"Name": "ManifestS3Uri", "Value": manifest_uri},
+                  ],
+              )
+              print(f"Pipeline execution ARN: {response['PipelineExecutionArn']}")
+              return {"statusCode": 200, "body": json.dumps(response, default=str)}
+
+  # EventBridge rule: S3 ObjectCreated on manifests/ prefix
+  ManifestEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "lmr-manifest-trigger-${Environment}"
+      Description: "Trigger SageMaker pipeline when new manifest is uploaded"
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - "Object Created"
+        detail:
+          bucket:
+            name:
+              - !Ref DataBucketName
+          object:
+            key:
+              - prefix: "manifests/"
+      Targets:
+        - Arn: !GetAtt TriggerFunction.Arn
+          Id: SageMakerTriggerTarget
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TriggerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ManifestEventRule.Arn
+
+Outputs:
+  TriggerFunctionArn:
+    Value: !GetAtt TriggerFunction.Arn
+  EventRuleArn:
+    Value: !GetAtt ManifestEventRule.Arn

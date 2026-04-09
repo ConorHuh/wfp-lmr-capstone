@@ -60,12 +60,39 @@ class DatasetConfig(BaseModel):
     s3_key_template: str = "{prefix}/{dataset}/{date}/{asset}.tif"
 
 
+class ServeConfig(BaseModel):
+    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    presigned_url_expiry_seconds: int = 3600
+    predictions_prefix: str = "predictions"
+
+
+class ExternalBucketConfig(BaseModel):
+    name: str
+    region: str = "us-east-1"
+    purpose: str = ""
+
+
+class ExternalBucketsConfig(BaseModel):
+    sagemaker: ExternalBucketConfig | None = None
+
+
+class InferenceConfig(BaseModel):
+    model_name: str = "livestock-mortality"
+    output_bucket: str = "lmr-data-cogs"
+    output_prefix: str = "predictions/livestock-mortality"
+    boundary_file: str = "boundaries/kenya_wards.geojson"
+    ssm_prefix: str = "/lmr/model"
+
+
 class AppConfig(BaseModel):
     global_: GlobalConfig = Field(alias="global")
     aoi: AOIConfig
     admin_levels: list[AdminLevelConfig] = Field(default_factory=list)
     stac: STACConfig
     datasets: list[DatasetConfig]
+    serve: ServeConfig = ServeConfig()
+    external_buckets: ExternalBucketsConfig = ExternalBucketsConfig()
+    inference: InferenceConfig = InferenceConfig()
 
     model_config = {"populate_by_name": True}
 

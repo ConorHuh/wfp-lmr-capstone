@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — Fargate Serve Task + ALB"
+
+Parameters:
+  Environment:
+    Type: String
+  ContainerImageUri:
+    Type: String
+  TaskRoleArn:
+    Type: String
+  ExecutionRoleArn:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  VpcId:
+    Type: String
+  ClusterArn:
+    Type: String
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/lmr-serve-${Environment}"
+      RetentionInDays: 30
+
+  # --- ALB ---
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "LMR Serve ALB - inbound HTTP"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "lmr-serve-${Environment}"
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "lmr-serve-tg-${Environment}"
+      Port: 8000
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # --- ECS Service ---
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "LMR Serve Fargate - inbound from ALB only"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "lmr-serve-${Environment}"
+      Cpu: "2048"
+      Memory: "8192"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: lmr-serve
+          Image: !Ref ContainerImageUri
+          Command:
+            - "--mode"
+            - "serve"
+            - "--config"
+            - "/app/config/datasets.yaml"
+          PortMappings:
+            - ContainerPort: 8000
+              Protocol: tcp
+          Environment:
+            - Name: GDAL_DISABLE_READDIR_ON_OPEN
+              Value: EMPTY_DIR
+            - Name: VSI_CACHE
+              Value: "TRUE"
+            - Name: VSI_CACHE_SIZE
+              Value: "5000000"
+            - Name: GDAL_HTTP_MERGE_CONSECUTIVE_RANGES
+              Value: "YES"
+            - Name: GDAL_HTTP_MULTIPLEX
+              Value: "YES"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: serve
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: HTTPListener
+    Properties:
+      ServiceName: !Sub "lmr-serve-${Environment}"
+      Cluster: !Ref ClusterArn
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Ref SubnetIds
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - ContainerName: lmr-serve
+          ContainerPort: 8000
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  ALBDnsName:
+    Value: !GetAtt ALB.DNSName
+  ServiceArn:
+    Value: !Ref Service

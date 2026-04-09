@@ -6,6 +6,13 @@ Parameters:
     Type: String
   DataBucketArn:
     Type: String
+  SageMakerBucketArn:
+    Type: String
+    Default: ""
+    Description: "ARN of SageMaker default bucket for read-only access (optional)"
+
+Conditions:
+  HasSageMakerBucket: !Not [!Equals [!Ref SageMakerBucketArn, ""]]
 
 Resources:
   ExecutionRole:
@@ -56,6 +63,20 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lmr/*"
+        - !If
+          - HasSageMakerBucket
+          - PolicyName: SageMakerBucketReadOnly
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:ListBucket
+                  Resource:
+                    - !Ref SageMakerBucketArn
+                    - !Sub "${SageMakerBucketArn}/*"
+          - !Ref "AWS::NoValue"
 
   EventBridgeRole:
     Type: AWS::IAM::Role

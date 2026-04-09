@@ -60,12 +60,12 @@ def get_last_ingested_date(
     if not common_prefixes:
         return None
 
-    # Date folders look like: ingested/ndvi-sentinel2/2026-03-01/
+    # Date folders look like: ingested/ndvi-sentinel2/2026_03_01/
     dates = []
     for cp in common_prefixes:
         folder = cp["Prefix"].rstrip("/").split("/")[-1]
         try:
-            dates.append(datetime.strptime(folder, "%Y-%m-%d").replace(tzinfo=timezone.utc))
+            dates.append(datetime.strptime(folder, "%Y_%m_%d").replace(tzinfo=timezone.utc))
         except ValueError:
             continue
 
@@ -75,6 +75,32 @@ def get_last_ingested_date(
     latest = max(dates)
     logger.info("Last ingested date for %s: %s", dataset_name, latest.date())
     return latest
+
+
+def get_existing_dates(
+    bucket: str,
+    prefix: str,
+    dataset_name: str,
+    region: str = "us-east-1",
+) -> set[str]:
+    """Return the set of date strings already ingested for a dataset."""
+    s3 = get_s3_client(region)
+    dataset_prefix = f"{prefix}/{dataset_name}/"
+
+    try:
+        response = s3.list_objects_v2(
+            Bucket=bucket,
+            Prefix=dataset_prefix,
+            Delimiter="/",
+        )
+    except Exception:
+        return set()
+
+    dates = set()
+    for cp in response.get("CommonPrefixes", []):
+        folder = cp["Prefix"].rstrip("/").split("/")[-1]
+        dates.add(folder)
+    return dates
 
 
 def write_manifest(

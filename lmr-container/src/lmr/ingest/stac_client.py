@@ -23,6 +23,7 @@ def search_stac(
     config: AppConfig,
     dataset: DatasetConfig,
     start_date: datetime | None = None,
+    end_date: datetime | None = None,
 ) -> list:
     """Search STAC catalog for items matching the dataset configuration.
 
@@ -30,6 +31,7 @@ def search_stac(
         config: Application configuration.
         dataset: Dataset to search for.
         start_date: Override start date. If None, uses lookback_days from config.
+        end_date: Override end date. If None, uses current time.
 
     Returns:
         List of STAC items found.
@@ -37,8 +39,10 @@ def search_stac(
     now = datetime.now(timezone.utc)
     if start_date is None:
         start_date = now - timedelta(days=dataset.temporal.lookback_days)
+    if end_date is None:
+        end_date = now
 
-    date_range = f"{start_date.strftime('%Y-%m-%dT%H:%M:%SZ')}/{now.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    date_range = f"{start_date.strftime('%Y-%m-%dT%H:%M:%SZ')}/{end_date.strftime('%Y-%m-%dT%H:%M:%SZ')}"
 
     modifier = pc.sign_inplace if config.stac.requires_signing else None
 
