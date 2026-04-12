@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — Step Functions Inference Pipeline (manifest trigger → feature-extract → parallel infer)"
+
+Parameters:
+  Environment:
+    Type: String
+  DataBucketName:
+    Type: String
+  ClusterArn:
+    Type: String
+  FeatureExtractTaskDefArn:
+    Type: String
+  InferTaskDefArn:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  SecurityGroupId:
+    Type: String
+  SfnExecutionRoleArn:
+    Type: String
+  LambdaTriggerRoleArn:
+    Type: String
+  FeatureWindowMonths:
+    Type: Number
+    Default: 36
+
+Resources:
+  # ── State Machine ──────────────────────────────────────────────────────────
+  InferencePipeline:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "lmr-ward-inference-${Environment}"
+      StateMachineType: STANDARD
+      RoleArn: !Ref SfnExecutionRoleArn
+      DefinitionString: |
+        {
+          "Comment": "LMR Ward Inference Pipeline: feature-extract then parallel 3x infer",
+          "StartAt": "FeatureExtraction",
+          "States": {
+            "FeatureExtraction": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::ecs:runTask.sync",
+              "Parameters": {
+                "LaunchType": "FARGATE",
+                "Cluster.$": "$.clusterArn",
+                "TaskDefinition.$": "$.featureExtractTaskDef",
+                "Overrides": {
+                  "ContainerOverrides": [{
+                    "Name": "lmr-container",
+                    "Command.$": "States.Array('--mode', 'feature-extract', '--config', '/app/config/datasets.yaml', '--time-start', $.timeStart, '--time-end', $.timeEnd)"
+                  }]
+                },
+                "NetworkConfiguration": {
+                  "AwsvpcConfiguration": {
+                    "AssignPublicIp": "ENABLED",
+                    "Subnets.$": "$.subnets",
+                    "SecurityGroups.$": "$.securityGroups"
+                  }
+                }
+              },
+              "ResultPath": "$.featureResult",
+              "Next": "InferenceParallel",
+              "Catch": [{
+                "ErrorEquals": ["States.ALL"],
+                "Next": "PipelineFailed",
+                "ResultPath": "$.error"
+              }]
+            },
+            "InferenceParallel": {
+              "Type": "Parallel",
+              "Branches": [
+                {
+                  "StartAt": "InferBiannual",
+                  "States": {
+                    "InferBiannual": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::ecs:runTask.sync",
+                      "Parameters": {
+                        "LaunchType": "FARGATE",
+                        "Cluster.$": "$.clusterArn",
+                        "TaskDefinition.$": "$.inferTaskDef",
+                        "Overrides": {
+                          "ContainerOverrides": [{
+                            "Name": "lmr-container",
+                            "Command": ["--mode", "infer", "--config", "/app/config/datasets.yaml", "--scheme", "biannual"]
+                          }]
+                        },
+                        "NetworkConfiguration": {
+                          "AwsvpcConfiguration": {
+                            "AssignPublicIp": "ENABLED",
+                            "Subnets.$": "$.subnets",
+                            "SecurityGroups.$": "$.securityGroups"
+                          }
+                        }
+                      },
+                      "End": true
+                    }
+                  }
+                },
+                {
+                  "StartAt": "InferQuadseasonal",
+                  "States": {
+                    "InferQuadseasonal": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::ecs:runTask.sync",
+                      "Parameters": {
+                        "LaunchType": "FARGATE",
+                        "Cluster.$": "$.clusterArn",
+                        "TaskDefinition.$": "$.inferTaskDef",
+                        "Overrides": {
+                          "ContainerOverrides": [{
+                            "Name": "lmr-container",
+                            "Command": ["--mode", "infer", "--config", "/app/config/datasets.yaml", "--scheme", "quadseasonal"]
+                          }]
+                        },
+                        "NetworkConfiguration": {
+                          "AwsvpcConfiguration": {
+                            "AssignPublicIp": "ENABLED",
+                            "Subnets.$": "$.subnets",
+                            "SecurityGroups.$": "$.securityGroups"
+                          }
+                        }
+                      },
+                      "End": true
+                    }
+                  }
+                },
+                {
+                  "StartAt": "InferMonthly",
+                  "States": {
+                    "InferMonthly": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::ecs:runTask.sync",
+                      "Parameters": {
+                        "LaunchType": "FARGATE",
+                        "Cluster.$": "$.clusterArn",
+                        "TaskDefinition.$": "$.inferTaskDef",
+                        "Overrides": {
+                          "ContainerOverrides": [{
+                            "Name": "lmr-container",
+                            "Command": ["--mode", "infer", "--config", "/app/config/datasets.yaml", "--scheme", "monthly"]
+                          }]
+                        },
+                        "NetworkConfiguration": {
+                          "AwsvpcConfiguration": {
+                            "AssignPublicIp": "ENABLED",
+                            "Subnets.$": "$.subnets",
+                            "SecurityGroups.$": "$.securityGroups"
+                          }
+                        }
+                      },
+                      "End": true
+                    }
+                  }
+                }
+              ],
+              "End": true,
+              "Catch": [{
+                "ErrorEquals": ["States.ALL"],
+                "Next": "PipelineFailed",
+                "ResultPath": "$.error"
+              }]
+            },
+            "PipelineFailed": {
+              "Type": "Fail",
+              "Error": "InferencePipelineFailed",
+              "Cause": "One or more inference tasks failed. Check CloudWatch logs."
+            }
+          }
+        }
+
+  # ── Lambda Trigger (manifest S3 event → StartExecution) ────────────────────
+  TriggerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "lmr-manifest-sfn-trigger-${Environment}"
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LambdaTriggerRoleArn
+      Timeout: 60
+      Environment:
+        Variables:
+          SFN_ARN: !Ref InferencePipeline
+          DATA_BUCKET: !Ref DataBucketName
+          FEATURE_WINDOW_MONTHS: !Ref FeatureWindowMonths
+          SUBNET_IDS: !Join [",", !Ref SubnetIds]
+          SECURITY_GROUP_ID: !Ref SecurityGroupId
+          CLUSTER_ARN: !Ref ClusterArn
+          FEATURE_EXTRACT_TASK_DEF: !Ref FeatureExtractTaskDefArn
+          INFER_TASK_DEF: !Ref InferTaskDefArn
+      Code:
+        ZipFile: |
+          import json
+          import os
+          from datetime import datetime, timedelta
+
+          import boto3
+
+          sfn = boto3.client("stepfunctions")
+          SFN_ARN = os.environ["SFN_ARN"]
+          DATA_BUCKET = os.environ["DATA_BUCKET"]
+          FEATURE_WINDOW_MONTHS = int(os.environ.get("FEATURE_WINDOW_MONTHS", "36"))
+
+          def handler(event, context):
+              detail = event.get("detail", {})
+              bucket = detail.get("bucket", {}).get("name", "")
+              key = detail.get("object", {}).get("key", "")
+              print(f"Manifest event: s3://{bucket}/{key}")
+
+              # Compute time window
+              today = datetime.utcnow()
+              time_end = today.strftime("%Y-%m")
+              start = today - timedelta(days=FEATURE_WINDOW_MONTHS * 30)
+              time_start = start.strftime("%Y-%m")
+
+              # Pass infrastructure config to state machine via execution input
+              # so the state machine definition stays generic.
+              sfn_input = {
+                  "timeStart": time_start,
+                  "timeEnd": time_end,
+                  "manifestUri": f"s3://{bucket}/{key}",
+                  "dataBucket": DATA_BUCKET,
+                  "clusterArn": os.environ["CLUSTER_ARN"],
+                  "featureExtractTaskDef": os.environ["FEATURE_EXTRACT_TASK_DEF"],
+                  "inferTaskDef": os.environ["INFER_TASK_DEF"],
+                  "subnets": os.environ["SUBNET_IDS"].split(","),
+                  "securityGroups": [os.environ["SECURITY_GROUP_ID"]],
+              }
+              print(f"Starting SFN with input: {json.dumps(sfn_input)}")
+
+              response = sfn.start_execution(
+                  stateMachineArn=SFN_ARN,
+                  input=json.dumps(sfn_input),
+              )
+              print(f"Execution ARN: {response['executionArn']}")
+              return {"statusCode": 200, "body": json.dumps(response, default=str)}
+
+  # ── EventBridge Rule: manifest ObjectCreated → Lambda ──────────────────────
+  ManifestEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "lmr-manifest-inference-trigger-${Environment}"
+      Description: "Trigger inference pipeline when new ingest manifest is uploaded"
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - "Object Created"
+        detail:
+          bucket:
+            name:
+              - !Ref DataBucketName
+          object:
+            key:
+              - prefix: "manifests/"
+      Targets:
+        - Arn: !GetAtt TriggerFunction.Arn
+          Id: InferenceTriggerTarget
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TriggerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ManifestEventRule.Arn
+
+Outputs:
+  StateMachineArn:
+    Value: !Ref InferencePipeline
+  TriggerFunctionArn:
+    Value: !GetAtt TriggerFunction.Arn
+  EventRuleArn:
+    Value: !GetAtt ManifestEventRule.Arn

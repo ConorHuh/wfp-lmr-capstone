@@ -1,156 +1,244 @@
-# WFP Livestock Mortality Risk (LMR) Platform
+# LMR Data Platform — Livestock Mortality Risk Early Warning System
 
-Early warning system for livestock mortality in Kenya's Marsabit County. Ingests satellite imagery (MODIS), serves raster tiles via TiTiler, and visualizes predictions through WFP's Prism frontend.
+An end-to-end satellite-driven platform that predicts livestock mortality risk for pastoral communities in Marsabit County, Kenya. Built for the World Food Programme (WFP) as a UC Berkeley MIDS Capstone project (Spring 2026).
 
-## Quick Start — One-Command Deploy
+The system ingests MODIS satellite imagery on a recurring schedule, computes ward-level features, runs ensemble ML predictions, and delivers results through WFP's [Prism](https://github.com/WFP-VAM/prism-app) geospatial frontend — all deployed on AWS from a single command.
 
-```bash
-./scripts/deploy-all.sh
+## What Users See
+
+The platform is accessed through a Prism web application where users can:
+
+- **Browse satellite data layers** — NDVI, EVI, LAI, FPAR, GPP vegetation indices; daytime and nighttime land surface temperature; surface reflectance bands. Each layer has a date picker to view historical imagery.
+- **View livestock mortality predictions** — Ward-level risk maps showing predicted loss ratios as colored choropleth overlays, with Normal/Concerning/Critical classifications.
+- **Inspect ward-level details** — Click any ward to see the predicted loss ratio, model confidence score, risk classification, and the top 5 satellite features driving the prediction (with SHAP importance values).
+- **Access raster tiles** — All satellite data and predictions are served as Cloud Optimized GeoTIFF (COG) tiles through TiTiler, enabling smooth pan/zoom at any scale.
+
+## How It Works
+
+```
+Every 10 days (EventBridge):
+
+  Planetary Computer ──► Fargate: ingest ──► S3
+  (MODIS satellite data)   │                  ├── ingested/    (COGs)
+                           │                  ├── stats/       (zonal stats)
+                           └──────────────────├── manifests/   (run logs)
+                                              │
+                              S3 manifest event triggers Lambda
+                                              │
+                                              ▼
+                                    Step Functions pipeline
+                                    ├─ feature-extract (4 vCPU / 16 GB)
+                                    │    ward-level satellite features
+                                    └─ 3× parallel inference (1 vCPU / 4 GB each)
+                                         ��─ biannual    ─┐
+                                         ├─ quadseasonal ─┼──► predictions/
+                                         └─ monthly      ─┘    (CSV + GeoJSON + COG)
+
+  Prism frontend ◄── CloudFront ◄���─ ALB ◄── Fargate: serve
+  (AWS Amplify)       (HTTPS)                (FastAPI + TiTiler, always-on)
 ```
 
-This single script deploys the entire platform:
-1. **Backend** — Builds Docker image, deploys CloudFormation (ECR, S3, ECS, IAM, EventBridge), pushes to ECR, updates Fargate services
-2. **CloudFront** — Configures CORS (Origin header forwarding + OPTIONS preflight)
-3. **Frontend** — Clones Prism at a pinned commit, injects Kenya config, builds, deploys to Amplify
+### Pipeline Components
+
+**Ingestion** — Queries Microsoft's Planetary Computer STAC catalog for MODIS satellite imagery covering all of Kenya. Downloads raster assets, clips to the Kenya bounding box, reprojects to EPSG:4326, converts to COG format (tiled 256x256, DEFLATE compression, overviews), computes per-ward zonal statistics for the 12 Marsabit wards, and uploads everything to S3. Incremental by default — only pulls data newer than the last run.
+
+**Feature Extraction** — Reads stored satellite parquets and engineers ward-level features: vegetation indices, land surface temperature, surface reflectance, lagged values (1-3 month), drought composites (VCI/TCI/VHI), and temporal encodings. Uses a 3x3 grid sampling strategy within each ward polygon for spatial representativeness.
+
+**Inference** — Loads pre-trained ensemble models from S3 and produces risk predictions for each ward across three temporal schemes. Each scheme has four base models (XGBoost, LightGBM, Random Forest, Ridge) combined by weighted averaging. The monthly scheme uses an additional stacked meta-learner. Outputs include risk levels, confidence scores, and SHAP feature importance.
+
+**Serve** — An always-on FastAPI application with TiTiler mounted at `/cog` for serving COG tiles. Provides structured JSON endpoints for prediction data that Prism consumes. Runs behind ALB + CloudFront for HTTPS.
+
+**Frontend** — WFP's open-source Prism platform (React + MapLibre + Redux) with Kenya-specific configuration. Not checked into this repo — cloned at a pinned commit during deployment, configured with our layers/boundaries, patched, built, and deployed to AWS Amplify.
+
+### Temporal Schemes
+
+The model predicts livestock mortality at three temporal granularities:
+
+| Scheme | Periods/Year | Seasons | Use Case |
+|--------|-------------|---------|----------|
+| Biannual | 2 | LRLD (Mar-Sep), SRSD (Oct-Feb) | Strategic early warning |
+| Quadseasonal | 4 | LRS, LRS_dry, SRS, SRS_dry | Mid-range planning |
+| Monthly | 12 | Jan-Dec | Tactical/operational |
+
+## Quick Start
 
 ### Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| AWS CLI | v2 | `brew install awscli` |
-| Docker | Running | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
-| Node.js | 20 (via nvm) | `nvm install 20` |
-| yarn | latest | `npm install -g yarn` |
-| nvm | any | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh \| bash` |
+- AWS CLI v2 (configured with credentials)
+- Docker
+- Node.js 20 (via nvm) + yarn
+- Python 3.11+ with [uv](https://docs.astral.sh/uv/)
 
-AWS credentials must be configured (`aws sts get-caller-identity` should succeed).
-
-### Selective Deployment
+### Deploy Everything
 
 ```bash
-./scripts/deploy-all.sh --skip-backend      # frontend + CloudFront only
-./scripts/deploy-all.sh --skip-frontend     # backend + CloudFront only
-./scripts/deploy-all.sh --skip-build        # skip Docker build (use existing ECR image)
-./scripts/deploy-all.sh --skip-cloudfront   # skip CloudFront CORS check
+./infra/deploy-all.sh
 ```
 
-Run `./scripts/deploy-all.sh --help` for all options.
-
-## Repo Structure
-
-```
-├── lmr-container/              # The core container (ingest + serve modes)
-│   ├── src/lmr/                # Python source
-│   │   ├── ingest/             # Satellite data ingestion pipeline
-│   │   ├── serve/              # TiTiler tile server + API
-│   │   └── common/             # Shared utilities (S3, config, logging)
-│   ├── cloudformation/         # AWS infrastructure (nested stacks)
-│   │   ├── main.yaml           # Root stack
-│   │   ├── fargate-ingest.yaml # Ingest ECS task
-│   │   ├── fargate-serve.yaml  # Serve ECS service + ALB
-│   │   ├── iam.yaml            # Task roles + policies
-│   │   ├── s3.yaml             # Data bucket
-│   │   ├── ecr.yaml            # Container registry
-│   │   ├── eventbridge.yaml    # Ingest schedule (every N days)
-│   │   └── sagemaker-trigger.yaml  # (optional) manifest → SageMaker pipeline
-│   ├── config/datasets.yaml    # Dataset definitions
-│   ├── Dockerfile
-│   └── pyproject.toml
-│
-├── prism/                      # Prism frontend configuration (injected at build time)
-│   ├── kenya_config/
-│   │   ├── layers.json         # Layer definitions (tile URLs, legends, dates)
-│   │   ├── prism.json          # App config (map center, categories, icons)
-│   │   └── admin_boundaries.geojson  # Ward boundaries (ADM3)
-│   └── patches/                # Patches applied to prism-app during build
-│       └── 0001-support-hyphenated-date-format-in-static-raster-urls.patch
-│
-├── scripts/
-│   ├── deploy-all.sh           # ← THE deploy script
-│   └── truncate_precision.sh   # Utility: reduce GeoJSON coordinate precision
-│
-└── docs/                       # Architecture, cost estimates, conversion guides
-```
-
-## Architecture
-
-```
-                    ┌──────────────────────────────┐
-                    │  Amplify (Prism Frontend)     │
-                    │  main.d3dvy50qlv6dr6.         │
-                    │       amplifyapp.com          │
-                    └──────────────┬───────────────┘
-                                   │ tile requests
-                                   ▼
-                    ┌──────────────────────────────┐
-                    │  CloudFront (HTTPS + CORS)    │
-                    │  d31fsorf4vwo9f.cloudfront.net│
-                    └──────────────┬───────────────┘
-                                   │
-                                   ▼
-                    ┌──────────────────────────────┐
-                    │  ALB → Fargate (Serve)        │
-                    │  FastAPI + TiTiler            │
-                    │  Reads COGs via /vsis3/       │
-                    └──────────────┬───────────────┘
-                                   │ range reads
-                                   ▼
-                    ┌──────────────────────────────┐
-                    │  S3: lmr-data-cogs-dev        │
-                    │  ├── ingested/modis-ndvi/...  │
-                    │  └── predictions/...          │
-                    └──────────────────────────────┘
-                                   ▲
-                                   │ writes COGs
-                    ┌──────────────────────────────┐
-                    │  Fargate (Ingest)             │
-                    │  Planetary Computer → COG → S3│
-                    │  Triggered every 10 days      │
-                    └──────────────────────────────┘
-```
-
-## Key Configuration
-
-All infrastructure IDs are at the top of `scripts/deploy-all.sh`:
-
-| Variable | Current Value | Description |
-|----------|---------------|-------------|
-| `VPC_ID` | `vpc-0c392a79120ac5b1c` | VPC for Fargate tasks |
-| `SUBNET_IDS` | `subnet-084b...,subnet-0f79...` | Subnets for Fargate + ALB |
-| `AMPLIFY_APP_ID` | `d3dvy50qlv6dr6` | Amplify app (manual deploy) |
-| `CLOUDFRONT_DISTRIBUTION_ID` | `E1GZRKL82M95B5` | HTTPS proxy for tile server |
-| `PRISM_COMMIT` | `6f22f3b...` | Pinned prism-app commit |
-| `S3_BUCKET` | `lmr-data-cogs-dev` | COG storage bucket |
-
-## Adding New Data
-
-### New satellite layer
-1. Add ingestion logic in `lmr-container/src/lmr/ingest/`
-2. Add layer definition in `prism/kenya_config/layers.json`
-3. Add to a category in `prism/kenya_config/prism.json`
-4. Deploy: `./scripts/deploy-all.sh`
-
-### New prediction dates
-1. Upload COG to `s3://lmr-data-cogs-dev/predictions/livestock-mortality/{YYYY-MM-DD}/prediction.tif`
-2. Add the date to the `dates` array in `prism/kenya_config/layers.json`
-3. Deploy frontend: `./scripts/deploy-all.sh --skip-backend`
-
-See `docs/PREDICTION_COG_CONVERSION.md` for how to convert prediction GeoTIFFs to COG format.
-
-## Development
+This single command handles the full deployment:
+- Creates a CloudFormation artifacts bucket (bootstrap)
+- Auto-discovers the default VPC and public subnets
+- Builds the Docker image (`--platform linux/amd64` for Fargate)
+- Deploys all CloudFormation stacks
+- Pushes the container image to ECR and updates ECS
+- Migrates model artifacts from the SageMaker training bucket (when inference enabled)
+- Clones Prism at a pinned commit, injects Kenya config, builds, and deploys to Amplify
+- Invalidates the CloudFront cache
 
 ```bash
-cd lmr-container
-uv sync                                    # install dependencies
-uv run pytest -v                           # run tests
-uv run lmr --mode serve --config config/datasets.yaml  # local serve
-uv run lmr --mode ingest --config config/datasets.yaml # local ingest
+./infra/deploy-all.sh --skip-frontend    # backend only
+./infra/deploy-all.sh --skip-backend     # frontend only
+./infra/deploy-all.sh --skip-build       # reuse existing Docker image
+./infra/deploy-all.sh --help             # all options
 ```
 
-## Documentation
+### Local Development
 
-- `docs/ARCHITECTURE.md` — Detailed architecture and data flow
-- `docs/COST_ESTIMATE.md` — AWS cost breakdown
-- `docs/INGESTION_CONTAINER.md` — How the ingest pipeline works
-- `docs/PREDICTION_COG_CONVERSION.md` — GeoTIFF → COG conversion process
-- `docs/PLAN_DECOUPLE_SAGEMAKER.md` — Future: decouple from SageMaker
+```bash
+cd backend
+uv sync --group dev          # install dependencies
+uv run pytest tests/ -v      # run tests (54 tests)
+uv run lmr --mode serve --config config/datasets.yaml   # tile server on :8000
+uv run lmr --mode ingest --config config/datasets.yaml   # satellite ingestion
+```
+
+## Repository Structure
+
+```
+backend/                    # Single Docker container (Python 3.11 + GDAL)
+  src/lmr/
+    cli.py                  #   CLI: --mode ingest|serve|infer|feature-extract
+    config.py               #   Pydantic config models
+    ingest/                 #   STAC search, COG conversion, zonal stats, S3 upload
+    serve/                  #   FastAPI + TiTiler app, API routes, presigned URLs
+    infer/                  #   Feature extraction, preprocessing, ensemble, postprocessing
+    common/                 #   Shared S3 client, structured logging
+  config/
+    datasets.yaml           #   All platform config (datasets, inference toggle, S3 paths)
+    boundaries/             #   Kenya ward boundaries GeoJSON (1,425 wards)
+  tests/                    #   54 pytest tests
+  Dockerfile                #   Multi-stage build with uv
+
+frontend/                   # Prism frontend configuration (injected at deploy time)
+  kenya_config/
+    prism.json              #   App settings, map center, layer categories
+    layers.json             #   Layer definitions, tile URLs, legends, available dates
+    admin_boundaries.geojson  # Ward boundaries with pcodes
+  patches/                  #   Patches applied to Prism source (e.g. date format support)
+
+infra/                      # AWS infrastructure
+  cloudformation/           #   11 nested CloudFormation templates
+    main.yaml               #     Root stack orchestrator
+    fargate-ingest.yaml     #     Ingest task (1 vCPU / 4 GB)
+    fargate-serve.yaml      #     Serve task + ALB (2 vCPU / 8 GB)
+    fargate-infer.yaml      #     Feature-extract + infer tasks (conditional)
+    step-functions.yaml     #     Inference pipeline + Lambda trigger (conditional)
+    cloudfront.yaml         #     HTTPS distribution with CORS
+    amplify.yaml            #     Frontend hosting
+    eventbridge.yaml        #     10-day ingest schedule
+    s3.yaml, ecr.yaml, iam.yaml
+  deploy-all.sh             #   One-command deployment
+
+sagemaker-pipeline/         # ML training reference (not deployed)
+  *.py, *.ipynb             #   Training scripts, notebooks, hyperparameter tuning
+  config.yaml               #   Training configuration
+  README.md                 #   Training pipeline documentation
+
+prism-app/                  # WFP's Prism platform source (cloned at deploy time)
+  frontend/                 #   React + MapLibre + Redux
+  api/                      #   FastAPI backend for zonal stats
+  alerting/                 #   Storm/flood/drought email alerting
+  common/                   #   Shared TypeScript utilities
+
+data/                       # Static data artifacts
+  kenya_wards/              #   Shapefile source for ward boundaries
+
+docs/                       # Documentation
+  ARCHITECTURE.md           #   Full system architecture, S3 layout, API reference
+  INGESTION_CONTAINER.md    #   How the backend container works
+  COST_ESTIMATE.md          #   AWS cost breakdown (~$59-105/month)
+  PLAN_INFERENCE_INTEGRATION.md   # Inference integration technical approach
+  PROGRESS_INFERENCE_INTEGRATION.md  # Phase tracker
+  archive/                  #   Historical planning docs
+```
+
+## Configuration
+
+All platform configuration lives in [`backend/config/datasets.yaml`](backend/config/datasets.yaml):
+
+**Datasets** — 10 enabled MODIS collections (NDVI, EVI, LAI, FPAR, LST day/night, surface reflectance, ET, PET, GPP) plus disabled entries for Sentinel-1/2, fire, DEM, and land cover. Each dataset specifies its STAC collection, assets, resolution, and S3 key template.
+
+**Admin levels** — Ward boundaries and filtering. Currently configured for 12 wards in Marsabit County. Adding a new county is a one-line YAML change (no code changes, no re-ingestion).
+
+**Inference toggle** — `inference.enabled: true/false` controls whether Step Functions infrastructure is deployed. When disabled, only ingest + serve run.
+
+```yaml
+# Add a new county — just edit the filter:
+admin_levels:
+  - level: 3
+    filter:
+      field: "first_dist"
+      values: ["Marsabit", "Turkana"]  # add here
+```
+
+## API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check |
+| `GET /collections` | List datasets with available dates |
+| `GET /raster_geotiff?collection=&date=&asset=` | Presigned S3 URL for COG download |
+| `GET /tile_url?collection=&date=&asset=` | TiTiler tile URL template |
+| `GET /latest?model=livestock-mortality` | Latest prediction COG URL |
+| `GET /predictions/livestock-mortality/dates` | Available prediction dates |
+| `GET /predictions/livestock-mortality/{date}` | Ward prediction data (JSON) |
+| `GET /cog/tiles/WebMercatorQuad/{z}/{x}/{y}` | TiTiler raster tiles |
+
+## Infrastructure
+
+Deployed via CloudFormation (`infra/cloudformation/main.yaml`). The deploy script auto-discovers the default VPC — no manual network setup needed.
+
+| Resource | Name | Notes |
+|----------|------|-------|
+| ECS Cluster | `lmr-cluster-{env}` | Shared by all Fargate tasks |
+| S3 Bucket | `lmr-data-cogs-{env}` | COGs, stats, models, predictions |
+| ECR | `lmr-container-{env}` | Single container image |
+| ALB | Internet-facing, port 80 | Health check on `/health` |
+| CloudFront | HTTPS distribution | CORS, caching, HTTP→HTTPS redirect |
+| Amplify | `lmr-prism-{env}` | Prism frontend hosting |
+| EventBridge | Every 10 days | Triggers ingest task |
+| Step Functions | `lmr-ward-inference-{env}` | When inference enabled |
+
+Estimated cost: **$59-$105/month** depending on traffic. See [`docs/COST_ESTIMATE.md`](docs/COST_ESTIMATE.md).
+
+## Key Design Decisions
+
+1. **Single container, multiple modes** — One Docker image for ingest, serve, feature-extract, and infer. Shared code stays in one place.
+2. **Step Functions over SageMaker** — Inference via Step Functions + ECS Fargate instead of SageMaker Pipelines. Saves ~$1,000/year and avoids NAT gateway costs.
+3. **Models loaded from S3** — Ensemble model bundles stored in the data bucket, not baked into Docker. Documented revert path to original SageMaker training bucket.
+4. **Default VPC** — Auto-discovers the default VPC to avoid managed VPC + NAT gateway costs.
+5. **COG format everywhere** — Cloud Optimized GeoTIFFs with tiled layout, overviews, and DEFLATE compression for efficient HTTP range reads.
+6. **Config-driven extensibility** — New datasets, counties, or regions added by editing YAML. No code changes required.
+7. **Prism cloned at deploy time** — Not checked into this repo. Pinned to a specific commit for reproducibility.
+8. **Conditional inference** — `inference.enabled: false` deploys no inference infrastructure. WFP can use the platform for data ingestion and visualization without the ML pipeline.
+
+## Docs
+
+| Document | Description |
+|----------|-------------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Full system architecture, container modes, S3 layout, API reference |
+| [`docs/INGESTION_CONTAINER.md`](docs/INGESTION_CONTAINER.md) | How the backend container works, data flow, manual operation |
+| [`docs/COST_ESTIMATE.md`](docs/COST_ESTIMATE.md) | AWS cost breakdown and optimization options |
+| [`docs/PLAN_INFERENCE_INTEGRATION.md`](docs/PLAN_INFERENCE_INTEGRATION.md) | Inference integration technical approach |
+| [`docs/PROGRESS_INFERENCE_INTEGRATION.md`](docs/PROGRESS_INFERENCE_INTEGRATION.md) | Integration phase tracker |
+
+## Team
+
+UC Berkeley MIDS Capstone, Spring 2026. Client: World Food Programme.
+
+| Name | Contact |
+|------|---------|
+| Abhas Wanchu | abhas@berkeley.edu |
+| Conor Huh | conorhuh@berkeley.edu |
+| Grace Murnaghan | grace.murnaghan@berkeley.edu |
+| Skylar Wang | skylarmwang@berkeley.edu |

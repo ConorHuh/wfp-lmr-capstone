@@ -206,3 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 prism-app/
+prism-app/
+
+# macOS
+.DS_Store
