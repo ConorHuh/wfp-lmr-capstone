@@ -38,7 +38,6 @@ VPC_ID=""
 SUBNET_IDS=""
 STACK_NAME="lmr-platform-dev"
 AMPLIFY_BRANCH="main"
-S3_BUCKET="lmr-data-cogs-dev"
 SCHEDULE_DAYS=10
 PRISM_REPO="https://github.com/WFP-VAM/prism-app.git"
 PRISM_COMMIT="6f22f3b6063ad813f3277fa312b23bb0c9bbbab0"
@@ -85,6 +84,7 @@ done
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_REPO="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/lmr-container-${ENVIRONMENT}"
 STACK_NAME="lmr-platform-${ENVIRONMENT}"
+S3_BUCKET="lmr-data-cogs-${ENVIRONMENT}"
 
 # ── Bootstrap: CFN artifacts bucket (idempotent) ─────────────────────────────
 aws s3 mb "s3://lmr-cfn-artifacts-${ENVIRONMENT}" --region "${REGION}" 2>/dev/null || true
@@ -100,14 +100,40 @@ if [[ -z "$VPC_ID" ]]; then
     fi
 fi
 if [[ -z "$SUBNET_IDS" ]]; then
-    echo "  Auto-discovering subnets for VPC ${VPC_ID}..."
-    SUBNET_IDS=$(aws ec2 describe-subnets \
-        --filters "Name=vpc-id,Values=${VPC_ID}" "Name=defaultForAz,Values=true" \
-        --query 'Subnets[*].SubnetId' --output text --region "${REGION}" | tr '\t' ',')
-    if [[ -z "$SUBNET_IDS" ]]; then
-        echo "ERROR: No default subnets found. Use --subnet-ids to specify."
+    echo "  Auto-discovering public subnets for VPC ${VPC_ID}..."
+
+    # Option A: find subnets explicitly associated with route tables that have an IGW route.
+    # This correctly handles VPCs where the main route table uses a NAT gateway (private)
+    # and only specific subnets are routed through the internet gateway.
+    PUBLIC_SUBNETS=$(aws ec2 describe-route-tables \
+        --filters "Name=vpc-id,Values=${VPC_ID}" \
+                  "Name=route.destination-cidr-block,Values=0.0.0.0/0" \
+                  "Name=route.gateway-id,Values=igw-*" \
+        --query 'RouteTables[*].Associations[?SubnetId!=`null`].SubnetId' \
+        --output text --region "${REGION}" 2>/dev/null | tr '\t' ',')
+
+    # Option B fallback: use MapPublicIpOnLaunch flag (works for simple default VPCs)
+    if [[ -z "$PUBLIC_SUBNETS" ]]; then
+        echo "  No explicit IGW route table associations found, falling back to MapPublicIpOnLaunch..."
+        PUBLIC_SUBNETS=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=true" \
+            --query 'Subnets[*].SubnetId' --output text --region "${REGION}" | tr '\t' ',')
+    fi
+
+    if [[ -z "$PUBLIC_SUBNETS" ]]; then
+        echo "ERROR: No public subnets found in VPC ${VPC_ID}."
+        echo "       Use --subnet-ids to specify public subnets explicitly."
         exit 1
     fi
+
+    SUBNET_IDS="${PUBLIC_SUBNETS}"
+    SUBNET_COUNT=$(echo "${SUBNET_IDS}" | tr ',' '\n' | wc -l | tr -d ' ')
+    if [[ "$SUBNET_COUNT" -lt 2 ]]; then
+        echo "ERROR: ALB requires at least 2 subnets in different AZs. Found ${SUBNET_COUNT}."
+        echo "       Use --subnet-ids to specify at least 2 public subnets."
+        exit 1
+    fi
+    echo "  Found ${SUBNET_COUNT} public subnet(s): ${SUBNET_IDS}"
 fi
 
 # ── Read inference toggle from datasets.yaml ─────────────────────────────────
@@ -139,24 +165,66 @@ if [[ "$SKIP_BACKEND" == false ]]; then
     echo "── Step 1: Backend Deployment ──"
     cd "${REPO_ROOT}/backend"
 
-    # 1a. Build Docker image
+    # 1a. Create a build-time copy of config with environment-specific bucket name.
+    #     The original datasets.yaml is NEVER modified.
+    BUILD_DIR=$(mktemp -d /tmp/lmr-build-XXXXXXXXXXXX)
+    echo "  Preparing build context for environment: ${ENVIRONMENT}..."
+    cp -a . "${BUILD_DIR}/"
+    sed "s|lmr-data-cogs-[a-z]*|lmr-data-cogs-${ENVIRONMENT}|g" config/datasets.yaml > "${BUILD_DIR}/config/datasets.yaml"
+    echo "  Build context: ${BUILD_DIR} (original config untouched)"
+
+    # 1b. Build Docker image from the copied build context
     if [[ "$SKIP_BUILD" == false ]]; then
         echo "  Building Docker image..."
-        docker build --platform linux/amd64 -t "lmr-container:${IMAGE_TAG}" .
+        docker build --platform linux/amd64 -t "lmr-container:${IMAGE_TAG}" "${BUILD_DIR}"
     else
         echo "  Skipping Docker build (--skip-build)"
     fi
 
-    # 1b. Deploy CloudFormation
-    echo "  Deploying CloudFormation stack..."
+    # ── Phase 1: ECR bootstrap + image push ────────────────────────────────
+    #    ECR is managed here (not CloudFormation) because the image must exist
+    #    in ECR before CFN creates ECS services that reference it.
+    echo "  Phase 1: ECR bootstrap + image push"
+    echo "  Ensuring ECR repository exists..."
+    aws ecr create-repository \
+        --repository-name "lmr-container-${ENVIRONMENT}" \
+        --image-scanning-configuration scanOnPush=true \
+        --region "${REGION}" 2>/dev/null \
+        && echo "  Created ECR repo lmr-container-${ENVIRONMENT}" \
+        || echo "  ECR repo already exists"
+
+    if [[ "$SKIP_BUILD" == false ]]; then
+        echo "  Pushing image to ECR..."
+        aws ecr get-login-password --region "${REGION}" \
+            | docker login --username AWS --password-stdin \
+              "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
+        docker tag "lmr-container:${IMAGE_TAG}" "${ECR_REPO}:${IMAGE_TAG}"
+        docker push "${ECR_REPO}:${IMAGE_TAG}"
+    fi
+
+    # ── Phase 2: CloudFormation (full stack) ─────────────────────────────
+    #    Image is in ECR, so ECS services can pull it during creation.
+
+    # Clean up rolled-back stack if present (CFN can't create over ROLLBACK_COMPLETE)
+    STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}" \
+        --region "${REGION}" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+    if [[ "$STACK_STATUS" == "ROLLBACK_COMPLETE" ]]; then
+        echo "  Deleting rolled-back stack before redeploy..."
+        aws cloudformation delete-stack --stack-name "${STACK_NAME}" --region "${REGION}"
+        aws cloudformation wait stack-delete-complete --stack-name "${STACK_NAME}" --region "${REGION}"
+    fi
+
+    echo "  Phase 2: Deploying CloudFormation stack..."
+    CONTAINER_IMAGE_URI="${ECR_REPO}:${IMAGE_TAG}"
     PARAMS="Environment=${ENVIRONMENT}"
     PARAMS="${PARAMS} ScheduleIntervalDays=${SCHEDULE_DAYS}"
-    PARAMS="${PARAMS} ContainerImageTag=${IMAGE_TAG}"
+    PARAMS="${PARAMS} ContainerImageUri=${CONTAINER_IMAGE_URI}"
     PARAMS="${PARAMS} VpcId=${VPC_ID}"
     PARAMS="${PARAMS} SubnetIds=${SUBNET_IDS}"
     PARAMS="${PARAMS} EnableInferencePipeline=${ENABLE_INFERENCE}"
 
-    PACKAGED_TEMPLATE=$(mktemp /tmp/lmr-packaged-XXXXXXXXXXXX.yaml)
+    PACKAGED_TEMPLATE=$(mktemp /tmp/lmr-packaged-XXXXXXXX).yaml
     aws cloudformation package \
         --template-file "${REPO_ROOT}/infra/cloudformation/main.yaml" \
         --s3-bucket "lmr-cfn-artifacts-${ENVIRONMENT}" \
@@ -173,22 +241,10 @@ if [[ "$SKIP_BACKEND" == false ]]; then
 
     rm -f "${PACKAGED_TEMPLATE}"
 
-    # 1c. Push image to ECR
-    if [[ "$SKIP_BUILD" == false ]]; then
-        echo "  Pushing image to ECR..."
-        aws ecr get-login-password --region "${REGION}" \
-            | docker login --username AWS --password-stdin \
-              "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
-
-        docker tag "lmr-container:${IMAGE_TAG}" "${ECR_REPO}:${IMAGE_TAG}"
-        docker push "${ECR_REPO}:${IMAGE_TAG}"
-    fi
-
-    # 1d. Force new deployment of ECS services
+    # 1e. Force new deployment of ECS services (picks up latest image)
     echo "  Updating ECS services..."
     CLUSTER="lmr-cluster-${ENVIRONMENT}"
 
-    # Update serve service (picks up new image)
     aws ecs update-service \
         --cluster "${CLUSTER}" \
         --service "lmr-serve-${ENVIRONMENT}" \
@@ -196,7 +252,7 @@ if [[ "$SKIP_BACKEND" == false ]]; then
         --region "${REGION}" \
         --query 'service.serviceName' --output text 2>/dev/null || echo "  (serve service not found, skipping)"
 
-    # 1e. Migrate model artifacts (idempotent — only when inference enabled)
+    # 1f. Migrate model artifacts (idempotent — only when inference enabled)
     if [[ "${ENABLE_INFERENCE}" == "true" ]]; then
         echo "  Migrating model artifacts to production bucket..."
         SM_BUCKET="amazon-sagemaker-575108933641-us-east-1-c422b90ce861"
@@ -210,6 +266,8 @@ if [[ "$SKIP_BACKEND" == false ]]; then
             "s3://${S3_BUCKET}/models/geoBoundaries-KEN-ADM3.geojson" --no-progress 2>/dev/null || true
     fi
 
+    # 1g. Clean up build context
+    rm -rf "${BUILD_DIR}"
     echo "  Backend deployment complete."
     echo ""
 fi

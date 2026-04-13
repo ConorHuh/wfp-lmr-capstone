@@ -10,6 +10,7 @@ Resources:
     Type: AWS::ECR::Repository
     Properties:
       RepositoryName: !Sub "lmr-container-${Environment}"
+      # Retain on delete so pre-pushed images aren't lost during stack operations
       ImageScanningConfiguration:
         ScanOnPush: true
       LifecyclePolicy:

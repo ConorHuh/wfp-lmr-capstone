@@ -255,54 +255,48 @@ frontend/kenya_config/
 
 ## Infrastructure
 
-All CloudFormation templates are in `infra/cloudformation/`. Root stack: `lmr-platform-{env}` (`infra/cloudformation/main.yaml`).
+CloudFormation templates are in `infra/cloudformation/`. Root stack: `lmr-platform-{env}` (`infra/cloudformation/main.yaml`). ECR is managed by the deploy script (not CloudFormation) because the Docker image must exist in ECR before CloudFormation creates ECS services.
 
-| Nested Stack | Template | Resources |
-|-------------|----------|-----------|
-| ECR | `ecr.yaml` | Container registry |
-| S3 | `s3.yaml` | Data bucket with EventBridge notifications |
-| IAM | `iam.yaml` | Task, execution, EventBridge, Step Functions, Lambda roles |
-| Fargate Ingest | `fargate-ingest.yaml` | Ingest task definition, ECS cluster |
-| EventBridge | `eventbridge.yaml` | Scheduled ingest trigger (every 10 days) |
-| Fargate Serve | `fargate-serve.yaml` | Serve task definition, ECS service, ALB |
-| CloudFront | `cloudfront.yaml` | HTTPS distribution with CORS, cache |
-| Amplify | `amplify.yaml` | Frontend app and main branch |
-| Fargate Infer | `fargate-infer.yaml` | Feature-extract + infer task definitions (conditional) |
-| Step Functions | `step-functions.yaml` | State machine, Lambda trigger, EventBridge rule (conditional) |
+| Component | Managed By | Template / Resource |
+|-----------|-----------|---------------------|
+| ECR Repository | Deploy script | `aws ecr create-repository` (Phase 1 bootstrap) |
+| S3 Data Bucket | CloudFormation | `s3.yaml` — EventBridge notifications enabled |
+| IAM Roles | CloudFormation | `iam.yaml` — task, execution, EventBridge, SFN, Lambda roles |
+| ECS Cluster + Ingest Task | CloudFormation | `fargate-ingest.yaml` |
+| Ingest Schedule | CloudFormation | `eventbridge.yaml` — every 10 days |
+| Serve Task + ALB | CloudFormation | `fargate-serve.yaml` — ECS service, ALB, target group |
+| CloudFront | CloudFormation | `cloudfront.yaml` — HTTPS, CORS, cache |
+| Amplify App | CloudFormation | `amplify.yaml` — app + main branch |
+| Feature-Extract + Infer Tasks | CloudFormation | `fargate-infer.yaml` — conditional on `EnableInferencePipeline` |
+| Step Functions Pipeline | CloudFormation | `step-functions.yaml` — conditional on `EnableInferencePipeline` |
 
-Fargate Infer and Step Functions stacks are only deployed when `EnableInferencePipeline=true`.
+### Deployment
 
-### Fresh-Account Deployment
-
-The entire platform deploys from a fresh AWS account:
+The entire platform deploys from a fresh AWS account with a single command:
 
 ```bash
 ./infra/deploy-all.sh
 ```
 
-The script automatically:
-- Creates a CFN artifacts S3 bucket (bootstrap)
-- Auto-discovers the default VPC and public subnets
-- Reads `inference.enabled` from `datasets.yaml` → passes to CloudFormation
-- Builds and pushes the Docker image
-- Deploys all CloudFormation stacks
-- Migrates model artifacts (when inference enabled)
-- Invalidates CloudFront cache
-- Builds and deploys Prism frontend to Amplify
+See **[`infra/DEPLOY.md`](../infra/DEPLOY.md)** for the full deployment guide, including:
+- Phase-by-phase breakdown of what the script does
+- VPC and subnet auto-discovery logic
+- Environment isolation (`--env staging` creates separate resources)
+- Inference toggle (`inference.enabled` in datasets.yaml)
+- Troubleshooting guide
+- Teardown instructions
 
-Override VPC with `--vpc-id` and `--subnet-ids` flags. See `./infra/deploy-all.sh --help` for all options.
+### AWS Resources
 
-## AWS Resources
-
-| Resource | ID / Name |
-|----------|-----------|
+| Resource | Naming Pattern |
+|----------|---------------|
+| ECR Repository | `lmr-container-{env}` |
 | ECS Cluster | `lmr-cluster-{env}` |
 | S3 Bucket | `lmr-data-cogs-{env}` |
-| ECR Repository | `lmr-container-{env}` |
-| CloudFront | Managed by `cloudfront.yaml` (ID in stack outputs) |
-| Amplify | Managed by `amplify.yaml` (ID in stack outputs) |
+| CloudFront | Created by `cloudfront.yaml` (ID in stack outputs) |
+| Amplify | Created by `amplify.yaml` (ID in stack outputs) |
 | Step Functions | `lmr-ward-inference-{env}` (when inference enabled) |
-| CloudWatch Logs | `/ecs/lmr-ingest-{env}`, `/ecs/lmr-serve-{env}`, `/ecs/lmr-feature-extract-{env}`, `/ecs/lmr-infer-{env}` |
+| CloudWatch Logs | `/ecs/lmr-{mode}-{env}` (ingest, serve, feature-extract, infer) |
 
 ## Key Design Decisions
 
@@ -314,5 +308,6 @@ Override VPC with `--vpc-id` and `--subnet-ids` flags. See `./infra/deploy-all.s
 6. **Model artifacts loaded from S3** — ensemble model bundles are stored in the data bucket, not baked into the Docker image. Revert path documented via `model_s3_prefix_fallback` in config.
 7. **COG format everywhere** — Cloud Optimized GeoTIFFs with tiled layout (256x256), overviews, and DEFLATE compression for efficient HTTP range reads.
 8. **CloudFront in CloudFormation** — HTTPS proxy for ALB, managed declaratively. CORS (Origin header forwarding, OPTIONS) configured in template, not manual API calls.
-9. **Default VPC** — deploy script auto-discovers the default VPC to avoid the cost of a managed VPC with NAT gateways. Override with `--vpc-id` for custom VPCs.
-10. **Prism cloned at deploy time** — Prism source is not checked into this repo. `deploy-all.sh` clones a pinned commit, injects `frontend/kenya_config/`, applies patches, builds, and deploys to Amplify.
+9. **Default VPC** — deploy script auto-discovers the default VPC and public subnets (route table IGW check with `MapPublicIpOnLaunch` fallback) to avoid the cost of a managed VPC with NAT gateways. Override with `--vpc-id` / `--subnet-ids` for custom VPCs.
+10. **ECR managed by deploy script** — the Docker image must exist in ECR before CloudFormation creates ECS services. ECR is bootstrapped via `aws ecr create-repository` in Phase 1 of the deploy, not via CloudFormation, to avoid the chicken-and-egg problem on fresh deploys.
+11. **Prism cloned at deploy time** — Prism source is not checked into this repo. `deploy-all.sh` clones a pinned commit, injects `frontend/kenya_config/`, applies patches, builds, and deploys to Amplify.

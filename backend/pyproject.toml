@@ -22,10 +22,12 @@ dependencies = [
     "xarray>=2024.0",
     "xgboost>=2.0",
     "lightgbm>=4.0",
-    "shap>=0.45",
     "s3fs>=2024.0",
     "pyproj>=3.6",
 ]
+
+[project.optional-dependencies]
+shap = ["shap>=0.45"]
 
 [project.scripts]
 lmr = "lmr.cli:main"
