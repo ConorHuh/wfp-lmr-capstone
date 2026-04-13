@@ -22,12 +22,11 @@ dependencies = [
     "xarray>=2024.0",
     "xgboost>=2.0",
     "lightgbm>=4.0",
+    "shap>=0.45",
     "s3fs>=2024.0",
     "pyproj>=3.6",
+    "pyarrow>=23.0.1",
 ]
-
-[project.optional-dependencies]
-shap = ["shap>=0.45"]
 
 [project.scripts]
 lmr = "lmr.cli:main"
@@ -35,6 +34,12 @@ lmr = "lmr.cli:main"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.uv]
+override-dependencies = [
+    # Drop CUDA GPU library — we run on Fargate CPU
+    "nvidia-nccl-cu12 ; sys_platform == 'never'",
+]
 
 [build-system]
 requires = ["hatchling"]

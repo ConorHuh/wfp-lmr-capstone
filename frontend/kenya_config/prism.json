@@ -34,9 +34,8 @@
         "modis_sr_nir"
       ],
       "predictions": [
-        "predictions_mortality",
-        "predictions_risk_level",
-        "predictions_ward_details"
+        "predictions_monthly",
+        "predictions_biannual"
       ]
     }
   }

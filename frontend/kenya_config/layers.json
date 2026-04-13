@@ -163,47 +163,22 @@
       { "value": "Very High", "color": "#006d2c" }
     ]
   },
-  "predictions_mortality": {
-    "title": "Livestock Mortality Risk (Ward-level)",
-    "type": "static_raster",
-    "opacity": 0.9,
-    "min_zoom": 0,
-    "max_zoom": 14,
-    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/predictions/livestock-mortality/{YYYY-MM-DD}/ward_predictions.tif&bidx=3&rescale=0.01,0.1&colormap_name=rdylgn_r&nodata=-9999",
-    "dates": ["2026-04-01"],
-    "legend_text": "Predicted livestock mortality loss ratio by ward (XGBoost model)",
-    "legend": [
-      { "value": "Low (<2%)", "color": "#1a9850" },
-      { "value": "Moderate (3%)", "color": "#a6d96a" },
-      { "value": "Elevated (5%)", "color": "#fee08b" },
-      { "value": "High (7%)", "color": "#f46d43" },
-      { "value": "Critical (>8%)", "color": "#d73027" }
-    ]
-  },
-  "predictions_risk_level": {
-    "title": "Livestock Mortality Risk Category",
-    "type": "static_raster",
-    "opacity": 0.9,
-    "min_zoom": 0,
-    "max_zoom": 14,
-    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/predictions/livestock-mortality/{YYYY-MM-DD}/ward_predictions.tif&bidx=1&rescale=0,2&colormap_name=rdylgn_r&nodata=-9999",
-    "dates": ["2026-04-01"],
-    "legend_text": "Risk classification: Normal (0) or Critical (2)",
-    "legend": [
-      { "value": "Normal", "color": "#1a9850" },
-      { "value": "Critical", "color": "#d73027" }
-    ]
-  },
-  "predictions_ward_details": {
-    "title": "Ward Prediction Details (click for info)",
+  "predictions_monthly": {
+    "title": "Monthly Predictions",
     "type": "admin_level_data",
-    "path": "https://d31fsorf4vwo9f.cloudfront.net/predictions/livestock-mortality/{YYYY_MM_DD}",
-    "dates": ["2026-04-01"],
+    "path": "https://d31fsorf4vwo9f.cloudfront.net/predictions/livestock-mortality-monthly/{YYYY_MM_DD}",
+    "dates": [
+      "2018-10-01", "2018-11-01", "2018-12-01",
+      "2019-01-01", "2019-02-01", "2019-03-01", "2019-04-01", "2019-05-01", "2019-06-01",
+      "2019-07-01", "2019-08-01", "2019-09-01", "2019-10-01", "2019-11-01", "2019-12-01",
+      "2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01", "2020-05-01", "2020-06-01",
+      "2020-07-01", "2020-08-01", "2020-09-01", "2020-10-01", "2020-11-01", "2020-12-01"
+    ],
     "admin_code": "pcode",
     "admin_level": 3,
     "data_field": "mean_predicted_loss_ratio",
     "opacity": 0.7,
-    "legend_text": "Click a ward to see prediction details (loss ratio, confidence, risk level, top features)",
+    "legend_text": "Monthly livestock mortality loss ratio by ward",
     "legend": [
       { "value": 0.01, "label": "Low (<2%)", "color": "#1a9850" },
       { "value": 0.02, "label": "Moderate (2-3%)", "color": "#a6d96a" },
@@ -216,17 +191,46 @@
       "median_predicted_loss_ratio": { "type": "number", "dataTitle": "Median Loss Ratio" },
       "confidence": { "type": "number", "dataTitle": "Model Confidence" },
       "risk_level": { "type": "text", "dataTitle": "Risk Level" },
-      "n_observations": { "type": "number", "dataTitle": "Observations" },
       "top_feature_1": { "type": "text", "dataTitle": "#1 Feature" },
       "top_feature_1_importance": { "type": "number", "dataTitle": "#1 Importance" },
       "top_feature_2": { "type": "text", "dataTitle": "#2 Feature" },
       "top_feature_2_importance": { "type": "number", "dataTitle": "#2 Importance" },
       "top_feature_3": { "type": "text", "dataTitle": "#3 Feature" },
-      "top_feature_3_importance": { "type": "number", "dataTitle": "#3 Importance" },
-      "top_feature_4": { "type": "text", "dataTitle": "#4 Feature" },
-      "top_feature_4_importance": { "type": "number", "dataTitle": "#4 Importance" },
-      "top_feature_5": { "type": "text", "dataTitle": "#5 Feature" },
-      "top_feature_5_importance": { "type": "number", "dataTitle": "#5 Importance" }
+      "top_feature_3_importance": { "type": "number", "dataTitle": "#3 Importance" }
+    }
+  },
+  "predictions_biannual": {
+    "title": "Biannual (Seasonal) Predictions",
+    "type": "admin_level_data",
+    "path": "https://d31fsorf4vwo9f.cloudfront.net/predictions/livestock-mortality-biannual/{YYYY_MM_DD}",
+    "dates": [
+      "2018-10-01",
+      "2019-04-01", "2019-10-01",
+      "2020-04-01", "2020-10-01"
+    ],
+    "admin_code": "pcode",
+    "admin_level": 3,
+    "data_field": "mean_predicted_loss_ratio",
+    "opacity": 0.7,
+    "legend_text": "Seasonal livestock mortality loss ratio by ward (LRLD=Apr, SRSD=Oct)",
+    "legend": [
+      { "value": 0.01, "label": "Low (<2%)", "color": "#1a9850" },
+      { "value": 0.02, "label": "Moderate (2-3%)", "color": "#a6d96a" },
+      { "value": 0.03, "label": "Elevated (3-5%)", "color": "#fee08b" },
+      { "value": 0.05, "label": "High (5-7%)", "color": "#f46d43" },
+      { "value": 0.07, "label": "Critical (>7%)", "color": "#d73027" }
+    ],
+    "feature_info_props": {
+      "mean_predicted_loss_ratio": { "type": "number", "dataTitle": "Mean Loss Ratio" },
+      "median_predicted_loss_ratio": { "type": "number", "dataTitle": "Median Loss Ratio" },
+      "confidence": { "type": "number", "dataTitle": "Model Confidence" },
+      "risk_level": { "type": "text", "dataTitle": "Risk Level" },
+      "top_feature_1": { "type": "text", "dataTitle": "#1 Feature" },
+      "top_feature_1_importance": { "type": "number", "dataTitle": "#1 Importance" },
+      "top_feature_2": { "type": "text", "dataTitle": "#2 Feature" },
+      "top_feature_2_importance": { "type": "number", "dataTitle": "#2 Importance" },
+      "top_feature_3": { "type": "text", "dataTitle": "#3 Feature" },
+      "top_feature_3_importance": { "type": "number", "dataTitle": "#3 Importance" }
     }
   }
 }

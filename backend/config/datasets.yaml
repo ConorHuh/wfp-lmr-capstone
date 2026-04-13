@@ -325,3 +325,95 @@ inference:
   # Source satellite parquets for feature extraction (pre-downloaded from Planetary Computer during training)
   source_data_bucket: "amazon-sagemaker-575108933641-us-east-1-c422b90ce861"
   source_data_prefix: "dzd-ayr06tncl712p3/5t7l23o0xvt99j/dev/data/training/planetary_computer"
+
+# Feature labels for prediction tooltips
+# Short labels are displayed in the PRISM tooltip; full descriptions are for reference.
+# Covers all features that appear in top_features from the XGBoost model.
+feature_labels:
+  dem_std:
+    short: "Elevation Std Dev"
+    full: "DEM std — elevation standard deviation in 20km window; proxy for terrain roughness"
+  evi_250m:
+    short: "EVI (250m)"
+    full: "EVI 250m — Enhanced Vegetation Index (soil-adjusted) from MODIS at 500m res"
+  jrc_occurrence:
+    short: "Water Occurrence"
+    full: "JRC water occurrence — percentage of time water present 1984–2020 (JRC Global Surface Water 30m)"
+  lst_day_roll3_mean:
+    short: "LST Day (3-mo avg)"
+    full: "LST 3-month rolling mean — mean daytime land surface temperature over past 3 months"
+  lswi:
+    short: "Land Surface Water Index"
+    full: "LSWI — Land Surface Water Index; sensitive to both leaf and soil moisture (NIR-SWIR2)/(NIR+SWIR2)"
+  months_since_fire:
+    short: "Months Since Fire"
+    full: "Months since fire — months since most recent MODIS fire detection"
+  ndvi_250m:
+    short: "NDVI (250m)"
+    full: "NDVI 250m — Normalized Difference Vegetation Index from MODIS at 250m resolution"
+  ndvi_250m_lag2:
+    short: "NDVI (2-mo lag)"
+    full: "NDVI 2-month lag — NDVI value from 2 months prior"
+  ndvi_250m_roll3_mean:
+    short: "NDVI (3-mo avg)"
+    full: "NDVI 3-month rolling mean — mean NDVI over past 3 months"
+  ndvi_anom:
+    short: "NDVI Anomaly"
+    full: "NDVI anomaly — NDVI minus long-term calendar-month mean (expanding window, no leakage)"
+  ndvi_anom_std:
+    short: "NDVI Anomaly Std Dev"
+    full: "NDVI anomaly standard deviation — variability of NDVI anomaly"
+  pdsi_lag4:
+    short: "PDSI (4-mo lag)"
+    full: "Palmer Drought Severity Index from 4 months prior"
+  ppt:
+    short: "Precipitation"
+    full: "Precipitation — CHIRPS monthly rainfall total (mm/month)"
+  ppt_anom:
+    short: "Precipitation Anomaly"
+    full: "Precipitation anomaly — CHIRPS rainfall minus long-term calendar-month mean"
+  ppt_roll3_mean:
+    short: "Precipitation (3-mo avg)"
+    full: "Precipitation 3-month rolling mean — mean monthly rainfall over past 3 months (mm/month)"
+  soil_anom:
+    short: "Soil Moisture Anomaly"
+    full: "Soil moisture anomaly — soil moisture minus long-term calendar-month mean"
+  soil_anom_roll3:
+    short: "Soil Moisture Anom (3-mo avg)"
+    full: "Soil moisture anomaly 3-month rolling mean — sustained soil moisture departure"
+  soil_composite:
+    short: "Soil Moisture Composite"
+    full: "Soil moisture composite — 0.4×swvl1 + 0.35×swvl2 + 0.15×swvl3 + 0.10×swvl4; depth-weighted aggregate"
+  soil_composite_anom:
+    short: "Soil Composite Anomaly"
+    full: "Soil composite anomaly — composite minus long-term calendar-month mean (expanding window)"
+  soil_shallow_deep:
+    short: "Soil Shallow/Deep Ratio"
+    full: "Soil shallow/deep ratio — swvl1/swvl4; surface vs deep storage contrast"
+  sr_nir_lag2:
+    short: "NIR Reflectance (2-mo lag)"
+    full: "MODIS Band 2 (NIR) surface reflectance from 2 months prior"
+  sr_nir_lag3:
+    short: "NIR Reflectance (3-mo lag)"
+    full: "MODIS Band 2 (NIR) surface reflectance from 3 months prior"
+  swvl2:
+    short: "Soil Moisture Layer 2"
+    full: "Soil moisture layer 2 — ERA5-Land volumetric soil water 7–28cm depth (m³/m³)"
+  swvl3:
+    short: "Soil Moisture Layer 3"
+    full: "Soil moisture layer 3 — ERA5-Land volumetric soil water 28–100cm depth (m³/m³)"
+  swvl4:
+    short: "Soil Moisture Layer 4"
+    full: "Soil moisture layer 4 — ERA5-Land volumetric soil water 100–289cm depth (m³/m³)"
+  tci:
+    short: "Temp Condition Index"
+    full: "TCI — Temperature Condition Index; 0=hottest ever, 100=coolest"
+  tci_roll3_mean:
+    short: "TCI (3-mo avg)"
+    full: "TCI 3-month rolling mean — mean Temperature Condition Index over past 3 months"
+  vhi_lag1:
+    short: "Vegetation Health (1-mo lag)"
+    full: "VHI 1-month lag — Vegetation Health Index from 1 month prior"
+  wc_water:
+    short: "Water Cover Fraction"
+    full: "WorldCover water — fraction of water bodies in 20km window"

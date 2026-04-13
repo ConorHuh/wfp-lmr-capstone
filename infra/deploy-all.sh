@@ -281,10 +281,10 @@ CLOUDFRONT_DOMAIN=$(aws cloudformation describe-stacks \
     --stack-name "${STACK_NAME}" --region "${REGION}" \
     --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomain'].OutputValue" \
     --output text 2>/dev/null || echo "")
-AMPLIFY_APP_ID=$(aws cloudformation describe-stacks \
+AMPLIFY_APP_ID="${AMPLIFY_APP_ID:-$(aws cloudformation describe-stacks \
     --stack-name "${STACK_NAME}" --region "${REGION}" \
     --query "Stacks[0].Outputs[?OutputKey=='AmplifyAppId'].OutputValue" \
-    --output text 2>/dev/null || echo "")
+    --output text 2>/dev/null || echo "")}"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2: CloudFront — Now managed by CloudFormation (cloudfront.yaml)

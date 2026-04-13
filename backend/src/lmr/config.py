@@ -81,6 +81,11 @@ class InferenceConfig(BaseModel):
     source_data_prefix: str = ""
 
 
+class FeatureLabelConfig(BaseModel):
+    short: str
+    full: str
+
+
 class AppConfig(BaseModel):
     global_: GlobalConfig = Field(alias="global")
     aoi: AOIConfig
@@ -89,6 +94,7 @@ class AppConfig(BaseModel):
     datasets: list[DatasetConfig]
     serve: ServeConfig = ServeConfig()
     inference: InferenceConfig = InferenceConfig()
+    feature_labels: dict[str, FeatureLabelConfig] = Field(default_factory=dict)
 
     model_config = {"populate_by_name": True}
 

@@ -1,11 +1,28 @@
-FROM python:3.11-slim
+# ── Stage 1: build ──────────────────────────────────────────────
+FROM python:3.11-slim AS builder
 
-# Install GDAL and rasterio system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin \
     libgdal-dev \
     gcc \
     g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+COPY src/ src/
+COPY config/ config/
+
+RUN uv sync --frozen --no-dev
+
+# ── Stage 2: runtime ───────────────────────────────────────────
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gdal-bin \
+    libgdal-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # GDAL environment variables for optimal S3 COG performance (TiTiler)
@@ -15,17 +32,9 @@ ENV GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR \
     GDAL_HTTP_MERGE_CONSECUTIVE_RANGES=YES \
     GDAL_HTTP_MULTIPLEX=YES
 
-# Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
-
-# Copy project files
-COPY pyproject.toml uv.lock ./
-COPY src/ src/
-COPY config/ config/
-
-# Install dependencies with uv
-RUN uv sync --frozen --no-dev
+COPY --from=builder /app /app
 
 ENTRYPOINT ["uv", "run", "--no-sync", "lmr"]

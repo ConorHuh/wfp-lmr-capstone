@@ -10,59 +10,56 @@ from lmr.serve.s3 import (
     s3_key_exists,
 )
 
-# Ward name mapping: prediction GeoJSON ADM3_EN → boundary pcode
-# Covers all 45 Marsabit-region wards used in livestock mortality predictions.
-# Wards with KE_ prefix have synthetic pcodes matching the enriched boundary file.
-_WARD_PCODE_MAP = {
-    "Angata Nanyokie": "KE0034",
-    "Arbajahan": "KE0037",
-    "Baawa": "KE0047",
-    "Butiye": "KE0123",
-    "Chari": "KE0149",
-    "Cherab": "KE0179",
-    "Dukana": "KE0212",
-    "El-Barta": "KE_El-Barta",
-    "Golbo": "KE0313",
-    "Illeret": "KE0360",
-    "Kalapata": "KE0427",
-    "Kalokol": "KE0432",
-    "Kang'Atotha": "KE_Kang'Atotha",
-    "Kapedo/Napeitom": "KE0471",
-    "Karare": "KE0505",
-    "Kargi/South Horr": "KE0509",
-    "Katilia": "KE0530",
-    "Kerio Delta": "KE0548",
-    "Korondile": "KE0676",
-    "Korr/Ngurunit": "KE0677",
-    "Laisamis": "KE_Laisamis",
-    "Lake Zone": "KE0710",
-    "Lakoley South/Basir": "KE_Lakoley South/Basir",
-    "Log Logo": "KE_Log Logo",
-    "Loiyangalani": "KE0743",
-    "Logologo": "KE0740",
-    "Lokori/Kochodin": "KE0747",
-    "Loosuk": "KE0753",
-    "Maikona": "KE0796",
-    "Marsabit Central": "KE0740",
-    "Marsabet central": "KE0740",
-    "Nachola": "KE1022",
-    "Ndoto": "KE1052",
-    "North Horr": "KE1086",
-    "Nyiro": "KE1126",
-    "Obbu": "KE1136",
-    "Poro": "KE1150",
-    "Ribkwo": "KE_Ribkwo",
-    "Sagante/Jaldesa": "KE1192",
-    "Sagante/Jaldessa": "KE1192",
-    "Sekerr": "KE1207",
-    "Sericho": "KE1211",
-    "Sololo": "KE1255",
-    "Tirioko": "KE1319",
-    "Turbi": "KE1338",
-    "Uran": "KE1351",
-    "Wamba East": "KE1373",
-    "Wamba North": "KE1374",
-    "Waso": "KE1384",
+# Deterministic shapeID → enriched KE pcode mapping for 45 Marsabit-region wards.
+# Built from the enriched admin boundary file (frontend/kenya_config/admin_boundaries.geojson)
+# which contains both shapeID (geoBoundaries) and pcode (enriched KE-format) for each ward.
+_SHAPEID_TO_PCODE = {
+    "90231094B10172771319566": "KE0037",   # Arbajahan
+    "90231094B72025053214099": "KE0034",   # Angata Nanyokie
+    "90231094B72746936744105": "KE0047",   # Baawa
+    "90231094B15364119625366": "KE0123",   # Butiye
+    "90231094B50144609273926": "KE0149",   # Chari
+    "90231094B87449600047850": "KE0179",   # Cherab
+    "90231094B5573987448146": "KE0212",    # Dukana
+    "90231094B188332930189": "KE_El-Barta",  # El-Barta
+    "90231094B59854911915600": "KE0313",   # Golbo
+    "90231094B31992479059302": "KE0360",   # Illeret
+    "90231094B76245390051388": "KE0427",   # Kalapata
+    "90231094B83090338457236": "KE0432",   # Kalokol
+    "90231094B38147959739491": "KE_Kang'Atotha",  # Kang'Atotha
+    "90231094B29136219307336": "KE0471",   # Kapedo/Napeitom
+    "90231094B1337157862833": "KE0505",    # Karare
+    "90231094B53566041103404": "KE0509",   # Kargi/South Horr
+    "90231094B92569591317187": "KE0530",   # Katilia
+    "90231094B26546531882406": "KE0548",   # Kerio Delta
+    "90231094B29407240705955": "KE0676",   # Korondile
+    "90231094B8071195372928": "KE0677",    # Korr/Ngurunit
+    "90231094B40010710391655": "KE_Laisamis",  # Laisamis
+    "90231094B49006740348855": "KE0710",   # Lake Zone
+    "90231094B46732073330793": "KE_Lakoley South/Basir",  # Lakoley South/Basir
+    "90231094B9458721871414": "KE_Log Logo",  # Log Logo
+    "90231094B56895889347103": "KE0743",   # Loiyangalani
+    "90231094B81821065805517": "KE0740",   # Marsabit Central
+    "90231094B13029526517882": "KE0747",   # Lokori/Kochodin
+    "90231094B72561831501862": "KE0753",   # Loosuk
+    "90231094B43646863097503": "KE0796",   # Maikona
+    "90231094B91795569302668": "KE1022",   # Nachola
+    "90231094B62369780661110": "KE1052",   # Ndoto
+    "90231094B74485578386276": "KE1086",   # North Horr
+    "90231094B16944892781111": "KE1126",   # Nyiro
+    "90231094B82073157238535": "KE1136",   # Obbu
+    "90231094B12946353808942": "KE1150",   # Poro
+    "90231094B90774889939565": "KE_Ribkwo",  # Ribkwo
+    "90231094B10583428946278": "KE1192",   # Sagante/Jaldesa
+    "90231094B92349644184476": "KE1255",   # Sololo
+    "90231094B4411108441834": "KE1211",    # Sericho
+    "90231094B58027541120438": "KE1319",   # Tirioko
+    "90231094B36492978778614": "KE1338",   # Turbi
+    "90231094B52894736113617": "KE1351",   # Uran
+    "90231094B82036966044005": "KE1373",   # Wamba East
+    "90231094B35618945672487": "KE1374",   # Wamba North
+    "90231094B52652220782701": "KE1384",   # Waso
+    "90231094B33506971670808": "KE1207",   # Sekerr
 }
 
 router = APIRouter()
@@ -169,25 +166,63 @@ async def tile_url(request: Request, collection: str, date: str, asset: str = "n
     }
 
 
-def _flatten_prediction_properties(props: dict) -> dict:
-    """Convert ward prediction GeoJSON properties into a flat dict for Prism."""
-    # New GeoJSON includes pcode directly; fall back to name→pcode map for legacy files
-    pcode = props.get("pcode")
-    if pcode is None:
-        ward_name = props.get("ADM3_EN", "")
-        pcode = _WARD_PCODE_MAP.get(ward_name, f"KE_{ward_name}")
-    flat = {
+# ISO date (YYYY_MM_DD from PRISM) → S3 folder name mappings
+_MONTH_NAMES = {
+    "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr",
+    "05": "May", "06": "Jun", "07": "Jul", "08": "Aug",
+    "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec",
+}
+
+# Biannual season mapping: LRLD starts ~April, SRSD starts ~October
+_BIANNUAL_SEASON = {"04": "LRLD", "10": "SRSD"}
+
+
+def _iso_to_monthly_folder(iso_date: str) -> str:
+    """Convert '2019_01_01' → '2019Jan'."""
+    parts = iso_date.split("_")
+    return f"{parts[0]}{_MONTH_NAMES[parts[1]]}"
+
+
+def _iso_to_biannual_folder(iso_date: str) -> str:
+    """Convert '2019_04_01' → '2019LRLD', '2019_10_01' → '2019SRSD'."""
+    parts = iso_date.split("_")
+    season = _BIANNUAL_SEASON.get(parts[1])
+    if season is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid biannual date {iso_date}: month must be 04 (LRLD) or 10 (SRSD)",
+        )
+    return f"{parts[0]}{season}"
+
+
+def _flatten_prediction_properties(props: dict, feature_labels: dict) -> dict:
+    """Convert ward prediction GeoJSON properties into a flat dict for Prism.
+
+    Resolves shapeID-format pcode to enriched KE pcode via deterministic lookup.
+    Formats numbers and maps feature names to human-readable labels.
+    """
+    # Map shapeID → KE pcode
+    raw_pcode = props.get("pcode", "")
+    pcode = _SHAPEID_TO_PCODE.get(raw_pcode, raw_pcode)
+
+    mean_lr = props.get("mean_predicted_loss_ratio")
+    median_lr = props.get("median_predicted_loss_ratio")
+    confidence = props.get("confidence")
+
+    flat: dict = {
         "pcode": pcode,
-        "mean_predicted_loss_ratio": props.get("mean_predicted_loss_ratio"),
-        "median_predicted_loss_ratio": props.get("median_predicted_loss_ratio"),
-        "max_predicted_loss_ratio": props.get("max_predicted_loss_ratio"),
-        "confidence": props.get("confidence"),
+        "mean_predicted_loss_ratio": round(mean_lr, 4) if mean_lr is not None else None,
+        "median_predicted_loss_ratio": round(median_lr, 4) if median_lr is not None else None,
+        "confidence": round(confidence, 2) if confidence is not None else None,
         "risk_level": props.get("risk_level"),
         "n_observations": props.get("n_observations"),
     }
-    # Flatten top_features array into individual fields
+    # Flatten top_features with readable labels
     for i, feat in enumerate(props.get("top_features", [])[:5], start=1):
-        flat[f"top_feature_{i}"] = feat.get("feature", "")
+        raw_name = feat.get("feature", "")
+        label_cfg = feature_labels.get(raw_name)
+        label = label_cfg.short if label_cfg else raw_name
+        flat[f"top_feature_{i}"] = label
         flat[f"top_feature_{i}_importance"] = round(feat.get("importance", 0), 4)
     return flat
 
@@ -203,19 +238,35 @@ async def prediction_dates(request: Request):
     return {"dates": dates}
 
 
-@router.get("/predictions/livestock-mortality/{date}")
-async def prediction_ward_data(request: Request, date: str):
+@router.get("/predictions/{model_type}/{period}")
+async def prediction_ward_data(request: Request, model_type: str, period: str):
+    """Serve ward prediction data for PRISM admin_level_data layers.
+
+    model_type: 'livestock-mortality-monthly' or 'livestock-mortality-biannual'
+    period: e.g. '2019Jan', '2020SRSD'
+    """
     config = request.app.state.config
     bucket = config.global_.s3_bucket
     region = config.global_.region
     predictions_prefix = config.serve.predictions_prefix
+    feature_labels = config.feature_labels
 
-    key = f"{predictions_prefix}/livestock-mortality/{date}/ward_predictions.geojson"
+    if model_type == "livestock-mortality-monthly":
+        folder = _iso_to_monthly_folder(period)
+    elif model_type == "livestock-mortality-biannual":
+        folder = _iso_to_biannual_folder(period)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model_type: {model_type}. Must be 'livestock-mortality-monthly' or 'livestock-mortality-biannual'",
+        )
+
+    key = f"{predictions_prefix}/{model_type}/{folder}/ward_predictions.geojson"
     geojson = fetch_json_from_s3(bucket, key, region)
 
     if geojson is None:
-        raise HTTPException(status_code=404, detail=f"No predictions found for date: {date}")
+        raise HTTPException(status_code=404, detail=f"No predictions found for {model_type}/{period}")
 
     features = geojson.get("features", [])
-    data = [_flatten_prediction_properties(f["properties"]) for f in features]
+    data = [_flatten_prediction_properties(f["properties"], feature_labels) for f in features]
     return {"DataList": data}
