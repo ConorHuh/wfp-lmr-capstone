@@ -195,6 +195,36 @@ def _iso_to_biannual_folder(iso_date: str) -> str:
     return f"{parts[0]}{season}"
 
 
+# Quadseasonal season mapping:
+#   LRS     = Mar–Jun, LRS_dry = Jul–Sep
+#   SRS     = Oct–Dec, SRS_dry = Jan–Feb
+# Year label attaches to the year the SRS starts (e.g. 2018SRS_dry = Jan–Feb 2019).
+_QUADSEASONAL = {
+    "2018_10": "2018SRS", "2018_11": "2018SRS", "2018_12": "2018SRS",
+    "2019_01": "2018SRS_dry", "2019_02": "2018SRS_dry",
+    "2019_03": "2019LRS", "2019_04": "2019LRS", "2019_05": "2019LRS", "2019_06": "2019LRS",
+    "2019_07": "2019LRS_dry", "2019_08": "2019LRS_dry", "2019_09": "2019LRS_dry",
+    "2019_10": "2019SRS", "2019_11": "2019SRS", "2019_12": "2019SRS",
+    "2020_01": "2019SRS_dry", "2020_02": "2019SRS_dry",
+    "2020_03": "2020LRS", "2020_04": "2020LRS", "2020_05": "2020LRS", "2020_06": "2020LRS",
+    "2020_07": "2020LRS_dry", "2020_08": "2020LRS_dry", "2020_09": "2020LRS_dry",
+    "2020_10": "2020SRS", "2020_11": "2020SRS", "2020_12": "2020SRS",
+}
+
+
+def _iso_to_quadseasonal_folder(iso_date: str) -> str:
+    """Convert '2020_05_01' → '2020LRS'."""
+    parts = iso_date.split("_")
+    key = f"{parts[0]}_{parts[1]}"
+    folder = _QUADSEASONAL.get(key)
+    if folder is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No quadseasonal prediction for {iso_date} (valid range: 2018-10 to 2020-12)",
+        )
+    return folder
+
+
 def _flatten_prediction_properties(props: dict, feature_labels: dict) -> dict:
     """Convert ward prediction GeoJSON properties into a flat dict for Prism.
 
@@ -242,8 +272,9 @@ async def prediction_dates(request: Request):
 async def prediction_ward_data(request: Request, model_type: str, period: str):
     """Serve ward prediction data for PRISM admin_level_data layers.
 
-    model_type: 'livestock-mortality-monthly' or 'livestock-mortality-biannual'
-    period: e.g. '2019Jan', '2020SRSD'
+    model_type: 'livestock-mortality-monthly', 'livestock-mortality-biannual',
+                or 'livestock-mortality-quadseasonal'
+    period: e.g. '2019_01_01', '2019_04_01', '2020_05_01'
     """
     config = request.app.state.config
     bucket = config.global_.s3_bucket
@@ -255,10 +286,16 @@ async def prediction_ward_data(request: Request, model_type: str, period: str):
         folder = _iso_to_monthly_folder(period)
     elif model_type == "livestock-mortality-biannual":
         folder = _iso_to_biannual_folder(period)
+    elif model_type == "livestock-mortality-quadseasonal":
+        folder = _iso_to_quadseasonal_folder(period)
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid model_type: {model_type}. Must be 'livestock-mortality-monthly' or 'livestock-mortality-biannual'",
+            detail=(
+                f"Invalid model_type: {model_type}. Must be one of "
+                "'livestock-mortality-monthly', 'livestock-mortality-biannual', "
+                "'livestock-mortality-quadseasonal'"
+            ),
         )
 
     key = f"{predictions_prefix}/{model_type}/{folder}/ward_predictions.geojson"

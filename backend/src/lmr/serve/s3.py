@@ -37,8 +37,10 @@ def s3_key_exists(bucket: str, key: str, region: str) -> bool:
     try:
         client.head_object(Bucket=bucket, Key=key)
         return True
-    except client.exceptions.ClientError:
-        return False
+    except client.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            return False
+        raise
 
 
 def fetch_json_from_s3(bucket: str, key: str, region: str) -> dict | list | None:

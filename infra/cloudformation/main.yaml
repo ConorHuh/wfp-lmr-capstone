@@ -23,9 +23,24 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: "Deploy Step Functions inference pipeline (reads inference.enabled from datasets.yaml)"
+  EnableServeSchedule:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "Scale serve task to zero outside working hours (reads schedule.enabled from datasets.yaml)"
+  ScheduleStartHour:
+    Type: Number
+    Default: 8
+  ScheduleStopHour:
+    Type: Number
+    Default: 18
+  ScheduleTimezone:
+    Type: String
+    Default: "America/Los_Angeles"
 
 Conditions:
   HasInferencePipeline: !Equals [!Ref EnableInferencePipeline, "true"]
+  HasServeSchedule: !Equals [!Ref EnableServeSchedule, "true"]
 
 Resources:
   # ── Always-on stacks ─────────────────────────────────────────────────────
@@ -99,6 +114,22 @@ Resources:
       TemplateURL: ./amplify.yaml
       Parameters:
         Environment: !Ref Environment
+
+  # ── Conditional: Serve schedule (scale to zero outside hours) ─────────────
+
+  ServeScheduleStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasServeSchedule
+    DependsOn: FargateServeStack
+    Properties:
+      TemplateURL: ./serve-schedule.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ClusterName: !Select [1, !Split ["/", !GetAtt FargateIngestStack.Outputs.ClusterArn]]
+        ServiceName: !Sub "lmr-serve-${Environment}"
+        StartHour: !Ref ScheduleStartHour
+        StopHour: !Ref ScheduleStopHour
+        Timezone: !Ref ScheduleTimezone
 
   # ── Conditional: Inference pipeline (Step Functions) ──────────────────────
 

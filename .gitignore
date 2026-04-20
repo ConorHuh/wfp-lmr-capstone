@@ -208,5 +208,8 @@ __marimo__/
 prism-app/
 prism-app/
 
+# Claude Code
+.claude/
+
 # macOS
 .DS_Store

@@ -21,6 +21,17 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:lmr-earthdata-*"
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:lmr-cdsapi-*"
 
   TaskRole:
     Type: AWS::IAM::Role
@@ -51,7 +62,7 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: "*"
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/lmr-*:*"
 
   EventBridgeRole:
     Type: AWS::IAM::Role
@@ -72,7 +83,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - ecs:RunTask
-                Resource: "*"
+                Resource: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/lmr-*"
               - Effect: Allow
                 Action:
                   - iam:PassRole
@@ -102,7 +113,7 @@ Resources:
                   - ecs:RunTask
                   - ecs:StopTask
                   - ecs:DescribeTasks
-                Resource: "*"
+                Resource: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/lmr-*"
               - Effect: Allow
                 Action:
                   - iam:PassRole
@@ -126,7 +137,7 @@ Resources:
                   - logs:PutResourcePolicy
                   - logs:DescribeResourcePolicies
                   - logs:DescribeLogGroups
-                Resource: "*"
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/lmr-*:*"
 
   # Lambda role for the manifest → Step Functions trigger
   LambdaSfnTriggerRole:

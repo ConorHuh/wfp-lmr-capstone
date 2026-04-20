@@ -24,8 +24,8 @@ def run_ingest(
     if start_date_override:
         logger.info("Date range override: %s to %s", start_date_override, end_date_override or "now")
 
-    from lmr.ingest.stac_client import search_stac
-    from lmr.ingest.cog import download_asset, clip_to_bbox, ensure_cog, merge_cogs
+    from lmr.ingest.sources import search_items, download_item_asset, get_item_date, has_asset
+    from lmr.ingest.cog import clip_to_bbox, ensure_cog, merge_cogs
     from lmr.ingest.s3 import (
         build_s3_key,
         upload_file,
@@ -62,7 +62,7 @@ def run_ingest(
             if last_date is not None:
                 start_date = last_date + timedelta(days=1)
 
-        items = search_stac(config, dataset, start_date=start_date, end_date=end_date_override)
+        items = search_items(config, dataset, start_date=start_date, end_date=end_date_override)
 
         if not items:
             logger.info("No new items for %s", dataset.name)
@@ -79,8 +79,7 @@ def run_ingest(
         # Group items by date so we can merge tiles covering the same date
         items_by_date: dict[str, list] = defaultdict(list)
         for item in items:
-            dt = item.datetime or item.common_metadata.start_datetime
-            item_date = dt.strftime("%Y_%m_%d") if dt else "unknown"
+            item_date = get_item_date(item)
             items_by_date[item_date].append(item)
 
         # Skip dates already in S3 to avoid re-downloading
@@ -96,87 +95,96 @@ def run_ingest(
                 len(dates_to_process),
             )
 
-        for item_date, date_items in sorted(dates_to_process.items()):
+        # Use a dataset-level temp dir so CDS yearly NetCDFs can be cached
+        # across months. Safe for all source types.
+        with tempfile.TemporaryDirectory() as dataset_work_dir:
+          for item_date, date_items in sorted(dates_to_process.items()):
             logger.info(
                 "Processing %s date %s (%d items/tiles)",
                 dataset.name, item_date, len(date_items),
             )
 
             try:
-                with tempfile.TemporaryDirectory() as work_dir:
-                    work_path = Path(work_dir)
+                work_path = Path(dataset_work_dir)
 
-                    for asset_key in dataset.assets:
-                        # Process all tiles for this date+asset
-                        tile_cogs: list[Path] = []
+                for asset_key in dataset.assets:
+                    # Process all tiles for this date+asset
+                    tile_cogs: list[Path] = []
 
-                        for item in date_items:
-                            if asset_key not in item.assets:
-                                logger.warning(
-                                    "Asset %s not found in item %s, skipping",
-                                    asset_key, item.id,
-                                )
-                                continue
-
-                            # Download
-                            raw_path = download_asset(item, asset_key, work_path)
-
-                            # Clip to AOI bbox (full Kenya extent)
-                            clipped_path = work_path / f"{item.id}_{asset_key}_clipped.tif"
-                            clip_to_bbox(raw_path, config.aoi.bbox, clipped_path)
-
-                            # Convert to COG
-                            cog_path = work_path / f"{item.id}_{asset_key}_cog.tif"
-                            ensure_cog(clipped_path, cog_path, dataset.processing)
-                            tile_cogs.append(cog_path)
-
-                        if not tile_cogs:
+                    for item in date_items:
+                        if not has_asset(item, asset_key, dataset):
+                            logger.warning(
+                                "Asset %s not found in item, skipping",
+                                asset_key,
+                            )
                             continue
 
-                        # Merge multiple tiles into a single COG if needed
-                        if len(tile_cogs) > 1:
-                            merged_path = work_path / f"{dataset.name}_{item_date}_{asset_key}_merged.tif"
-                            merge_cogs(tile_cogs, merged_path)
-                            final_cog = merged_path
-                        else:
-                            final_cog = tile_cogs[0]
+                        # Download
+                        raw_path = download_item_asset(item, asset_key, work_path, dataset)
 
-                        # Upload COG to S3
-                        s3_key = build_s3_key(
-                            template=dataset.s3_key_template,
-                            prefix=prefix,
-                            dataset_name=dataset.name,
-                            date=item_date,
-                            asset=asset_key,
+                        # Clip to AOI bbox (full Kenya extent)
+                        clipped_path = work_path / f"{item.id}_{asset_key}_clipped.tif"
+                        clip_to_bbox(raw_path, config.aoi.bbox, clipped_path)
+
+                        # Convert to COG
+                        cog_path = work_path / f"{item.id}_{asset_key}_cog.tif"
+                        ensure_cog(clipped_path, cog_path, dataset.processing)
+                        tile_cogs.append(cog_path)
+
+                    if not tile_cogs:
+                        continue
+
+                    # Merge multiple tiles into a single COG if needed
+                    if len(tile_cogs) > 1:
+                        merged_path = work_path / f"{dataset.name}_{item_date}_{asset_key}_merged.tif"
+                        merge_cogs(tile_cogs, merged_path)
+                        final_cog = merged_path
+                    else:
+                        final_cog = tile_cogs[0]
+
+                    # Upload COG to S3
+                    s3_key = build_s3_key(
+                        template=dataset.s3_key_template,
+                        prefix=prefix,
+                        dataset_name=dataset.name,
+                        date=item_date,
+                        asset=asset_key,
+                    )
+                    upload_file(final_cog, bucket, s3_key, region)
+                    dataset_result["s3_keys"].append(s3_key)
+
+                    # Compute and upload zonal stats per admin level
+                    for level, boundary_data in admin_boundaries.items():
+                        stats = compute_zonal_stats(
+                            final_cog,
+                            boundary_data["gdf"],
+                            boundary_data["config"],
                         )
-                        upload_file(final_cog, bucket, s3_key, region)
-                        dataset_result["s3_keys"].append(s3_key)
+                        stats_path = work_path / f"admin{level}_{asset_key}_zonal.json"
+                        write_zonal_stats_json(stats, stats_path)
 
-                        # Compute and upload zonal stats per admin level
-                        for level, boundary_data in admin_boundaries.items():
-                            stats = compute_zonal_stats(
-                                final_cog,
-                                boundary_data["gdf"],
-                                boundary_data["config"],
-                            )
-                            stats_path = work_path / f"admin{level}_{asset_key}_zonal.json"
-                            write_zonal_stats_json(stats, stats_path)
+                        stats_key = (
+                            f"stats/{dataset.name}/{item_date}"
+                            f"/admin{level}_{asset_key}.json"
+                        )
+                        upload_file(stats_path, bucket, stats_key, region)
+                        dataset_result["stats_keys"].append(stats_key)
 
-                            stats_key = (
-                                f"stats/{dataset.name}/{item_date}"
-                                f"/admin{level}_{asset_key}.json"
-                            )
-                            upload_file(stats_path, bucket, stats_key, region)
-                            dataset_result["stats_keys"].append(stats_key)
-
-                    dataset_result["items_ingested"] += len(date_items)
-                    dataset_result["stac_items"].extend(item.id for item in date_items)
+                dataset_result["items_ingested"] += len(date_items)
+                dataset_result["stac_items"].extend(
+                    getattr(item, "id", get_item_date(item)) for item in date_items
+                )
             except Exception:
                 logger.exception(
                     "Failed to process %s date %s, skipping to next date",
                     dataset.name, item_date,
                 )
                 continue
+
+          # Post-ingest: build wide-format parquets for feature extraction
+          if dataset.parquet_bridge and dataset_result["items_ingested"] > 0:
+            from lmr.ingest.parquet_bridge import update_collection_parquet
+            update_collection_parquet(config, dataset)
 
         datasets_results.append(dataset_result)
         logger.info(

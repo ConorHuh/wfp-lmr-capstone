@@ -8,7 +8,7 @@ The backend container has four runtime modes, all packaged in a single Docker im
 
 | Mode | Purpose |
 |------|---------|
-| `ingest` | Pull satellite data from Planetary Computer, convert to COGs, upload to S3 |
+| `ingest` | Pull satellite data from Planetary Computer, NASA Earthdata, CHIRPS, and ERA5-Land; convert to COGs; upload to S3 |
 | `serve` | FastAPI + TiTiler tile server for the Prism frontend |
 | `feature-extract` | Ward-level satellite feature extraction for inference |
 | `infer` | Ensemble inference for one season scheme |
@@ -18,12 +18,14 @@ The container runs on AWS Fargate. Ingestion is triggered every 10 days by Event
 ## Data flow
 
 ```
-Planetary Computer (STAC API)
-        │
-        │  1. Search for satellite imagery covering all of Kenya
-        │     (MODIS vegetation, temperature, reflectance)
-        │
-        ▼
+Planetary Computer (STAC API)     NASA Earthdata     CHIRPS (HTTP)     ERA5-Land (CDS API)
+        │                              │                  │                    │
+        │  MODIS vegetation,           │  MODIS ET/PET    │  Rainfall          │  Soil moisture
+        │  temperature, reflectance    │  (HDF granules)  │  (monthly tifs)    │  (swvl1-4)
+        │                              │                  │                    │
+        └──────────────┬───────────────┴──────────────────┴────────────────────┘
+                       │
+                       ▼
 ┌─────────────────────────────────┐
 │  Ingest Container (Fargate)     │
 │                                 │
@@ -33,7 +35,9 @@ Planetary Computer (STAC API)
 │  5. Compute zonal stats for     │
 │     each ward in config         │
 │  6. Upload COGs + stats to S3   │
-│  7. Write manifest JSON         │
+│  7. Build parquets for feature  │
+│     extraction (CHIRPS, ERA5)   │
+│  8. Write manifest JSON         │
 └─────────────────────────────────┘
         │
         ▼
@@ -127,6 +131,19 @@ datasets:
       crs: "EPSG:4326"
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 ```
+
+### Data sources
+
+The ingest pipeline supports four source backends, configured via the `source` field on each dataset:
+
+| Source | Config value | Auth | Examples |
+|--------|-------------|------|----------|
+| Planetary Computer | `planetary_computer` (default) | PC signing (automatic) | MODIS NDVI, EVI, LAI, LST, SR, GPP |
+| NASA Earthdata | `nasa_earthdata` | `EARTHDATA_USERNAME` + `EARTHDATA_PASSWORD` env vars | MODIS ET/PET (8-day HDF) |
+| CHIRPS rainfall | `chirps_http` | None required | Monthly rainfall GeoTIFFs from UCSB |
+| ERA5-Land soil moisture | `copernicus_cds` | `CDSAPI_URL` + `CDSAPI_KEY` env vars | swvl1-4 monthly soil moisture layers |
+
+CHIRPS and ERA5-Land datasets also have a `parquet_bridge` config that automatically converts ingested COGs into the wide-format parquets that the feature extraction pipeline (`ward_features.py`) expects. This bridges the gap between the COG-based ingest pipeline and the parquet-based inference pipeline.
 
 ### Incremental ingestion
 

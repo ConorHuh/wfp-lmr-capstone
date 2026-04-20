@@ -12,8 +12,44 @@ One-command deployment of the full LMR platform to a fresh AWS account.
 | yarn | any | `yarn --version` |
 | Python | 3.11+ | `python3 --version` |
 | uv | any | `uv --version` |
+| NASA Earthdata account | free | https://urs.earthdata.nasa.gov |
+| Copernicus CDS account | free | https://cds.climate.copernicus.eu |
 
 AWS credentials must be configured with sufficient permissions to create IAM roles, ECS clusters, S3 buckets, CloudFront distributions, and Amplify apps.
+
+### NASA Earthdata Credentials
+
+The ingest pipeline downloads 8-day MODIS ET/PET data from NASA Earthdata. Before deploying, create a Secrets Manager secret with your NASA Earthdata credentials (one-time per environment):
+
+```bash
+aws secretsmanager create-secret \
+  --name lmr-earthdata-dev \
+  --secret-string '{"username":"your_earthdata_username","password":"your_earthdata_password"}' \
+  --region us-east-1
+```
+
+Replace `dev` with your environment name (e.g., `lmr-earthdata-staging`, `lmr-earthdata-prod`).
+
+To create a free NASA Earthdata account, sign up at https://urs.earthdata.nasa.gov. No institution or payment required.
+
+The Fargate ingest task definition injects `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` from this secret at runtime. The execution role has `secretsmanager:GetSecretValue` permission scoped to `lmr-earthdata-*` secrets.
+
+### Copernicus CDS Credentials (ERA5-Land Soil Moisture)
+
+The ingest pipeline downloads ERA5-Land monthly soil moisture data from the Copernicus Climate Data Store. Set the following environment variables for the Fargate ingest task:
+
+- `CDSAPI_URL` — `https://cds.climate.copernicus.eu/api`
+- `CDSAPI_KEY` — your personal API key from your [CDS profile page](https://cds.climate.copernicus.eu/profile)
+
+You must also accept the ERA5-Land dataset licence at:
+https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-monthly-means?tab=download#manage-licences
+
+For local runs, set in your `.env` file or export directly:
+
+```bash
+export CDSAPI_URL="https://cds.climate.copernicus.eu/api"
+export CDSAPI_KEY="your-api-key-here"
+```
 
 ## Quick Start
 
@@ -212,6 +248,24 @@ The deploy script uses `python3 -c "import yaml; ..."` to read the config. If th
 ### Stack is in ROLLBACK_COMPLETE
 
 A prior deploy failed. The script detects this and auto-deletes the rolled-back stack before creating fresh. No manual intervention needed.
+
+### Ingest fails with "NASA Earthdata login failed"
+
+The `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD` environment variables are missing or the Secrets Manager secret doesn't exist. Create the secret:
+
+```bash
+aws secretsmanager create-secret \
+  --name lmr-earthdata-dev \
+  --secret-string '{"username":"your_user","password":"your_pass"}' \
+  --region us-east-1
+```
+
+For local runs, set the env vars directly:
+
+```bash
+export EARTHDATA_USERNAME="your_user"
+export EARTHDATA_PASSWORD="your_pass"
+```
 
 ### `--skip-build` but image doesn't exist
 

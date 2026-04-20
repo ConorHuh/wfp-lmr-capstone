@@ -55,6 +55,15 @@ Resources:
             - "ingest"
             - "--config"
             - "/app/config/datasets.yaml"
+          Secrets:
+            - Name: EARTHDATA_USERNAME
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:lmr-earthdata-${Environment}:username::"
+            - Name: EARTHDATA_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:lmr-earthdata-${Environment}:password::"
+            - Name: CDSAPI_URL
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:lmr-cdsapi-${Environment}:url::"
+            - Name: CDSAPI_KEY
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:lmr-cdsapi-${Environment}:key::"
           LogConfiguration:
             LogDriver: awslogs
             Options:

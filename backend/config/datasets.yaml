@@ -147,12 +147,10 @@ datasets:
       crs: "EPSG:4326"
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
-  # ── MODIS ET/PET (500m, annual gap-filled) ──────────────────────────────
-  # modis-16A3GF-061 — annual composites (only version available on PC;
-  # 8-day modis-16A2GF-061 was deprecated from PC — source from NASA
-  # Earthdata/AppEEARS if sub-annual resolution is needed)
+  # ── MODIS ET/PET (500m, annual gap-filled — DEPRECATED) ──────────────────
+  # Replaced by 8-day products from NASA Earthdata below.
   - name: "modis-et"
-    enabled: true
+    enabled: false
     collection: "modis-16A3GF-061"
     assets: ["ET_500m"]
     temporal:
@@ -164,11 +162,42 @@ datasets:
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
   - name: "modis-pet"
-    enabled: true
+    enabled: false
     collection: "modis-16A3GF-061"
     assets: ["PET_500m"]
     temporal:
       lookback_days: 1500
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── MODIS ET/PET (500m, 8-day gap-filled) — NASA Earthdata ─────────────
+  # MOD16A2GF.061 — gap-filled, ~6 week lag. Replaces annual PC source.
+  # Requires EARTHDATA_USERNAME / EARTHDATA_PASSWORD env vars.
+  - name: "modis-et-8day"
+    enabled: true
+    source: "nasa_earthdata"
+    hdf_subdataset: "ET_500m"
+    collection: "MOD16A2GF.061"
+    assets: ["ET_500m"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "modis-pet-8day"
+    enabled: true
+    source: "nasa_earthdata"
+    hdf_subdataset: "PET_500m"
+    collection: "MOD16A2GF.061"
+    assets: ["PET_500m"]
+    temporal:
+      lookback_days: 1100
     processing:
       output_format: "cog"
       resolution_m: 500
@@ -285,6 +314,50 @@ datasets:
       crs: "EPSG:4326"
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
+  # ── CHIRPS rainfall (5km, monthly) — direct HTTP, no auth ──────────────
+  # Source: UCSB Climate Hazards Center. Monthly GeoTIFFs via HTTP.
+  # Maps to "chirps" collection in ward_features.py COLLECTIONS.
+  - name: "chirps-rainfall"
+    enabled: true
+    source: "chirps_http"
+    collection: "chirps-v2.0"
+    assets: ["ppt"]
+    temporal:
+      lookback_days: 90
+    processing:
+      output_format: "cog"
+      resolution_m: 5000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+    parquet_bridge:
+      collection_key: "chirps"
+      variable_map:
+        ppt: "ppt"
+
+  # ── ERA5-Land soil moisture (9km, monthly) — Copernicus CDS API ────────
+  # Source: ECMWF ERA5-Land monthly means. Requires CDSAPI_URL + CDSAPI_KEY env vars.
+  # 4 layers: swvl1 (0-7cm), swvl2 (7-28cm), swvl3 (28-100cm), swvl4 (100-289cm).
+  # Maps to "soil_moisture" collection in ward_features.py COLLECTIONS.
+  - name: "era5-soil-moisture"
+    enabled: true
+    source: "copernicus_cds"
+    collection: "reanalysis-era5-land-monthly-means"
+    assets: ["swvl1", "swvl2", "swvl3", "swvl4"]
+    temporal:
+      lookback_days: 90
+    processing:
+      output_format: "cog"
+      resolution_m: 9000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+    parquet_bridge:
+      collection_key: "soil_moisture"
+      variable_map:
+        swvl1: "swvl1"
+        swvl2: "swvl2"
+        swvl3: "swvl3"
+        swvl4: "swvl4"
+
   # GPP — gap-filled 8-day product matches v3 pipeline (modis-17A2HGF-061)
   - name: "modis-gpp"
     enabled: true
@@ -297,6 +370,16 @@ datasets:
       resolution_m: 500
       crs: "EPSG:4326"
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+# Serve schedule — scale the serve task to zero outside working hours.
+# Set enabled: true to activate scheduled scaling; false to run 24/7.
+# Times are cron-style in the specified timezone (IANA format).
+# Estimated savings: ~60% of Fargate serve cost (~$55/mo on a 10hr/day schedule).
+schedule:
+  enabled: true
+  start_hour: 8    # Scale up to 1 task at 8:00 AM
+  stop_hour: 18    # Scale down to 0 tasks at 6:00 PM
+  timezone: "America/Los_Angeles"
 
 # Serve mode configuration
 serve:
@@ -311,7 +394,6 @@ inference:
   enabled: true
   model_name: "livestock-mortality"
   model_s3_prefix: "s3://lmr-data-cogs-dev/models/inference_bundle"
-  # Revert path (never deleted): s3://amazon-sagemaker-575108933641-us-east-1-c422b90ce861/dzd-ayr06tncl712p3/5t7l23o0xvt99j/shared/final_lmr_ward_results/inference_bundle
   ward_boundaries_s3_key: "models/geoBoundaries-KEN-ADM3.geojson"
   output_bucket: "lmr-data-cogs-dev"
   output_prefix: "predictions/livestock-mortality"
@@ -322,9 +404,9 @@ inference:
     - monthly
   feature_window_months: 36
   n_sample_points: 9
-  # Source satellite parquets for feature extraction (pre-downloaded from Planetary Computer during training)
-  source_data_bucket: "amazon-sagemaker-575108933641-us-east-1-c422b90ce861"
-  source_data_prefix: "dzd-ayr06tncl712p3/5t7l23o0xvt99j/dev/data/training/planetary_computer"
+  # Source satellite parquets for feature extraction
+  source_data_bucket: "lmr-data-cogs-dev"
+  source_data_prefix: "parquets"
 
 # Feature labels for prediction tooltips
 # Short labels are displayed in the PRISM tooltip; full descriptions are for reference.

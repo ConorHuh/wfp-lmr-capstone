@@ -4,6 +4,7 @@ FROM python:3.11-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin \
     libgdal-dev \
+    libhdf4-alt-dev \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -23,6 +24,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin \
     libgdal-dev \
+    libhdf4-alt-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # GDAL environment variables for optimal S3 COG performance (TiTiler)

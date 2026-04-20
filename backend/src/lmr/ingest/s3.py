@@ -47,27 +47,24 @@ def get_last_ingested_date(
     dataset_prefix = f"{prefix}/{dataset_name}/"
 
     try:
-        response = s3.list_objects_v2(
-            Bucket=bucket,
-            Prefix=dataset_prefix,
-            Delimiter="/",
-        )
+        paginator = s3.get_paginator("list_objects_v2")
     except Exception:
         logger.warning("Could not list objects in s3://%s/%s", bucket, dataset_prefix)
         return None
 
-    common_prefixes = response.get("CommonPrefixes", [])
-    if not common_prefixes:
-        return None
-
     # Date folders look like: ingested/ndvi-sentinel2/2026_03_01/
     dates = []
-    for cp in common_prefixes:
-        folder = cp["Prefix"].rstrip("/").split("/")[-1]
-        try:
-            dates.append(datetime.strptime(folder, "%Y_%m_%d").replace(tzinfo=timezone.utc))
-        except ValueError:
-            continue
+    try:
+        for page in paginator.paginate(Bucket=bucket, Prefix=dataset_prefix, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                folder = cp["Prefix"].rstrip("/").split("/")[-1]
+                try:
+                    dates.append(datetime.strptime(folder, "%Y_%m_%d").replace(tzinfo=timezone.utc))
+                except ValueError:
+                    continue
+    except Exception:
+        logger.warning("Could not list objects in s3://%s/%s", bucket, dataset_prefix)
+        return None
 
     if not dates:
         return None
@@ -88,19 +85,15 @@ def get_existing_dates(
     dataset_prefix = f"{prefix}/{dataset_name}/"
 
     try:
-        response = s3.list_objects_v2(
-            Bucket=bucket,
-            Prefix=dataset_prefix,
-            Delimiter="/",
-        )
+        paginator = s3.get_paginator("list_objects_v2")
+        dates = set()
+        for page in paginator.paginate(Bucket=bucket, Prefix=dataset_prefix, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                folder = cp["Prefix"].rstrip("/").split("/")[-1]
+                dates.add(folder)
+        return dates
     except Exception:
         return set()
-
-    dates = set()
-    for cp in response.get("CommonPrefixes", []):
-        folder = cp["Prefix"].rstrip("/").split("/")[-1]
-        dates.add(folder)
-    return dates
 
 
 def write_manifest(
@@ -122,11 +115,21 @@ def write_manifest(
     now = datetime.now(timezone.utc)
     run_id = f"ingest-{now.strftime('%Y-%m-%dT%H:%M:%SZ')}"
 
+    # Derive overall status from per-dataset results
+    total = len(datasets_results)
+    succeeded = sum(1 for d in datasets_results if d.get("items_ingested", 0) > 0)
+    if succeeded == 0:
+        status = "failed"
+    elif succeeded < total:
+        status = "partial"
+    else:
+        status = "success"
+
     manifest = {
         "run_id": run_id,
         "timestamp": now.isoformat(),
         "datasets_processed": datasets_results,
-        "status": "success",
+        "status": status,
     }
 
     key = f"manifests/{run_id}.json"

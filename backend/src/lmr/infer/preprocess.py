@@ -108,6 +108,13 @@ def run_inference_preprocess(
             )
         X = df[feature_names].copy()
 
+        # Verify feature column order matches expected order exactly
+        if list(X.columns) != feature_names:
+            raise ValueError(
+                f"Feature column order mismatch after selection: "
+                f"expected {feature_names[:5]}..., got {list(X.columns)[:5]}..."
+            )
+
         # 5. Impute NaNs using training medians
         nan_counts_before = X.isna().sum().sum()
         for feat, median_val in train_medians.items():

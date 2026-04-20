@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from rio_tiler.errors import TileOutsideBounds
 from starlette.middleware.cors import CORSMiddleware
 
 from lmr.config import load_config
+
+logger = logging.getLogger("lmr")
 
 
 # Transparent 256x256 PNG tile for out-of-bounds requests
@@ -52,7 +56,8 @@ def create_app(config_path: str = "/app/config/datasets.yaml") -> FastAPI:
     async def _general_error_handler(request: Request, exc: Exception):
         if "/tiles/" in request.url.path:
             return Response(content=_EMPTY_PNG, media_type="image/png")
-        return Response(content=str(exc), status_code=500)
+        logger.exception("Unhandled error on %s", request.url.path)
+        return Response(content="Internal server error", status_code=500)
 
     # Custom API routes
     from lmr.serve.routes import router

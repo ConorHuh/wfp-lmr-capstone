@@ -24,17 +24,18 @@ def test_datasets_loaded():
     assert "modis-lai" in names
     assert "modis-lst-day" in names
     assert "modis-sr" in names
-    assert "modis-et" in names
+    assert "modis-et-8day" in names
 
 
 def test_disabled_datasets():
     config = load_config(CONFIG_PATH)
     disabled = {d.name for d in config.datasets if not d.enabled}
-    # Core disabled datasets — Sentinel, SAR, static, fire
+    # Core disabled datasets — Sentinel, SAR, static, fire, annual ET/PET
     assert "s1-vv" in disabled
     assert "s2-red" in disabled
     assert "dem" in disabled
     assert "modis-fire" in disabled
+    assert "modis-et" in disabled  # replaced by modis-et-8day from NASA
 
 
 def test_dataset_fields():
@@ -67,6 +68,19 @@ def test_aoi_is_full_kenya():
     assert east > 41.0
     assert south < -4.0
     assert north > 5.0
+
+
+def test_nasa_earthdata_source():
+    config = load_config(CONFIG_PATH)
+    et_8day = next(d for d in config.datasets if d.name == "modis-et-8day")
+    assert et_8day.source == "nasa_earthdata"
+    assert et_8day.hdf_subdataset == "ET_500m"
+    assert et_8day.collection == "MOD16A2GF.061"
+    assert et_8day.enabled is True
+    # PC datasets should default to planetary_computer
+    ndvi = next(d for d in config.datasets if d.name == "modis-ndvi")
+    assert ndvi.source == "planetary_computer"
+    assert ndvi.hdf_subdataset is None
 
 
 def test_serve_config():

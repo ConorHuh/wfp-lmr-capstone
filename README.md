@@ -18,8 +18,10 @@ The platform is accessed through a Prism web application where users can:
 ```
 Every 10 days (EventBridge):
 
-  Planetary Computer ──► Fargate: ingest ──► S3
-  (MODIS satellite data)   │                  ├── ingested/    (COGs)
+  Planetary Computer ──┐
+  (MODIS NDVI, LST…)   ├──► Fargate: ingest ──► S3
+  NASA Earthdata ──────┘    │                  ├── ingested/    (COGs)
+  (8-day ET/PET)            │
                            │                  ├── stats/       (zonal stats)
                            └──────────────────├── manifests/   (run logs)
                                               │
@@ -40,7 +42,7 @@ Every 10 days (EventBridge):
 
 ### Pipeline Components
 
-**Ingestion** — Queries Microsoft's Planetary Computer STAC catalog for MODIS satellite imagery covering all of Kenya. Downloads raster assets, clips to the Kenya bounding box, reprojects to EPSG:4326, converts to COG format (tiled 256x256, DEFLATE compression, overviews), computes per-ward zonal statistics for the 12 Marsabit wards, and uploads everything to S3. Incremental by default — only pulls data newer than the last run.
+**Ingestion** — Queries Microsoft's Planetary Computer STAC catalog and NASA Earthdata (CMR STAC) for MODIS satellite imagery covering all of Kenya. Most datasets come from Planetary Computer; 8-day ET/PET (MOD16A2GF.061) comes from NASA Earthdata since the collection was deprecated from PC after July 2023. Downloads raster assets (including HDF-EOS2 extraction for NASA sources), clips to the Kenya bounding box, reprojects to EPSG:4326, converts to COG format (tiled 256x256, DEFLATE compression, overviews), computes per-ward zonal statistics for the 12 Marsabit wards, and uploads everything to S3. Incremental by default — only pulls data newer than the last run.
 
 **Feature Extraction** — Reads stored satellite parquets and engineers ward-level features: vegetation indices, land surface temperature, surface reflectance, lagged values (1-3 month), drought composites (VCI/TCI/VHI), and temporal encodings. Uses a 3x3 grid sampling strategy within each ward polygon for spatial representativeness.
 
@@ -68,6 +70,7 @@ The model predicts livestock mortality at three temporal granularities:
 - Docker
 - Node.js 20 (via nvm) + yarn
 - Python 3.11+ with [uv](https://docs.astral.sh/uv/)
+- NASA Earthdata account (free) — required for 8-day ET/PET ingestion. See [NASA Earthdata Setup](#nasa-earthdata-setup) below.
 
 ### Deploy Everything
 
@@ -101,6 +104,35 @@ uv run pytest tests/ -v      # run tests (54 tests)
 uv run lmr --mode serve --config config/datasets.yaml   # tile server on :8000
 uv run lmr --mode ingest --config config/datasets.yaml   # satellite ingestion
 ```
+
+### NASA Earthdata Setup
+
+The platform ingests 8-day MODIS ET/PET data (MOD16A2GF.061) from NASA Earthdata. This collection was deprecated from Planetary Computer after July 2023, so NASA's CMR STAC catalog is used instead.
+
+**1. Create a free NASA Earthdata account**
+
+Sign up at https://urs.earthdata.nasa.gov — just an email and password. No institution or payment required.
+
+**2. For local development**, set environment variables before running ingestion:
+
+```bash
+export EARTHDATA_USERNAME="your_earthdata_username"
+export EARTHDATA_PASSWORD="your_earthdata_password"
+uv run lmr --mode ingest --config config/datasets.yaml
+```
+
+**3. For AWS deployment**, store credentials in Secrets Manager (one-time setup per environment):
+
+```bash
+aws secretsmanager create-secret \
+  --name lmr-earthdata-dev \
+  --secret-string '{"username":"your_earthdata_username","password":"your_earthdata_password"}' \
+  --region us-east-1
+```
+
+The Fargate ingest task automatically reads these credentials at runtime. The deploy script handles the IAM permissions.
+
+**Why NASA Earthdata?** The 8-day gap-filled ET/PET product provides sub-monthly evapotranspiration data critical for features like `et_deficit_roll3_mean`. The annual composite previously available on Planetary Computer was too coarse — ET/PET values were constant across the year, making temporal features (lags, rolling means) ineffective.
 
 ## Repository Structure
 
@@ -166,7 +198,7 @@ docs/                       # Documentation
 
 All platform configuration lives in [`backend/config/datasets.yaml`](backend/config/datasets.yaml):
 
-**Datasets** — 10 enabled MODIS collections (NDVI, EVI, LAI, FPAR, LST day/night, surface reflectance, ET, PET, GPP) plus disabled entries for Sentinel-1/2, fire, DEM, and land cover. Each dataset specifies its STAC collection, assets, resolution, and S3 key template.
+**Datasets** — 10 enabled collections: 8 from Planetary Computer (NDVI, EVI, LAI, FPAR, LST day/night, surface reflectance, GPP) plus 2 from NASA Earthdata (8-day ET and PET). Disabled entries exist for Sentinel-1/2, fire, DEM, land cover, and the deprecated annual ET/PET. Each dataset specifies its data source (`planetary_computer` or `nasa_earthdata`), STAC collection, assets, resolution, and S3 key template.
 
 **Admin levels** — Ward boundaries and filtering. Currently configured for 12 wards in Marsabit County. Adding a new county is a one-line YAML change (no code changes, no re-ingestion).
 

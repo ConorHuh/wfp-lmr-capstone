@@ -80,12 +80,10 @@ log = logging.getLogger(__name__)
 # ── S3 config ─────────────────────────────────────────────────────────────────
 # These module-level variables are set by configure() before calling main().
 # Defaults are the original SageMaker bucket values for backward compatibility.
-SM_BUCKET  = "amazon-sagemaker-575108933641-us-east-1-c422b90ce861"
-SM_BASE    = "dzd-ayr06tncl712p3/5t7l23o0xvt99j/dev/data/training"
-PC_PREFIX  = f"{SM_BASE}/planetary_computer"
-SHARED_BASE = "dzd-ayr06tncl712p3/5t7l23o0xvt99j/shared"
+SM_BUCKET  = "lmr-data-cogs-dev"
+PC_PREFIX  = "parquets"
 
-WARD_BOUNDARIES_KEY = f"{SHARED_BASE}/geoBoundaries-KEN-ADM3.geojson"
+WARD_BOUNDARIES_KEY = "models/geoBoundaries-KEN-ADM3.geojson"
 
 # Default temporal range for inference — override via CLI args
 DEFAULT_TIME_START = "2020-01"
@@ -668,8 +666,10 @@ def tier0_preprocess(df: pd.DataFrame) -> pd.DataFrame:
     log.info("Tier 0: ET/PET forward fill...")
     for col in ["et", "pet"]:
         if col in df.columns:
+            # Forward-fill across the full time series per ward (works for
+            # both 8-day and annual source data).
             df[col] = (
-                df.groupby(["ward_name", "ward_lon", "ward_lat", "year"])[col]
+                df.groupby(["ward_name", "ward_lon", "ward_lat"])[col]
                 .transform(lambda x: x.ffill().bfill())
             )
             log.info("  %s filled. Null=%.1f%%", col, df[col].isna().mean() * 100)

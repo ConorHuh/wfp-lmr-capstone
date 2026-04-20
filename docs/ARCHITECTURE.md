@@ -5,12 +5,20 @@ Early warning system for livestock mortality in Kenya's Marsabit County. Ingests
 ## System Diagram
 
 ```
-                                    ┌─────────────────────┐
-                                    │  Planetary Computer  │
-                                    │  (STAC Catalog)      │
-                                    └────────┬────────────┘
-                                             │ STAC search + download
-                                             ▼
+                          ┌─────────────────────┐
+                          │  Planetary Computer  │
+                          │  (STAC Catalog)      │
+                          └────────┬────────────┘
+                                   │
+        ┌──────────────────────────┼──────────────────────────┐
+        │                          │                          │
+┌───────┴───────┐  ┌───────────────┴──────┐  ┌───────────────┴──────┐
+│ NASA Earthdata│  │  CHIRPS (HTTP)       │  │  ERA5-Land (CDS API) │
+│ (MODIS ET/PET)│  │  (monthly rainfall)  │  │  (soil moisture)     │
+└───────┬───────┘  └───────────┬──────────┘  └───────────┬──────────┘
+        │                      │                         │
+        └──────────────────────┼─────────────────────────┘
+                               ▼
 ┌──────────────┐  every 10 days   ┌─────────────────────┐
 │  EventBridge │ ───────────────► │  Fargate: Ingest    │
 │  (cron)      │                  │  --mode ingest      │
@@ -69,7 +77,7 @@ Single Docker image (`backend/`) with four runtime modes:
 
 | Mode | Command | Resources | Purpose |
 |------|---------|-----------|---------|
-| `ingest` | `lmr --mode ingest --config config/datasets.yaml` | 1 vCPU / 4 GB | Pull satellite data from Planetary Computer, convert to COGs, upload to S3 |
+| `ingest` | `lmr --mode ingest --config config/datasets.yaml` | 1 vCPU / 4 GB | Pull data from Planetary Computer, NASA Earthdata, CHIRPS, ERA5-Land; convert to COGs; upload to S3 |
 | `serve` | `lmr --mode serve --config config/datasets.yaml` | 2 vCPU / 8 GB | FastAPI + TiTiler tile server for Prism |
 | `feature-extract` | `lmr --mode feature-extract --time-start YYYY-MM --time-end YYYY-MM` | 4 vCPU / 16 GB | Ward-level satellite feature extraction for inference |
 | `infer` | `lmr --mode infer --scheme biannual\|quadseasonal\|monthly` | 1 vCPU / 4 GB | Ensemble inference for one season scheme |
@@ -86,10 +94,12 @@ backend/src/lmr/
 │   ├── s3.py           # Shared boto3 S3 client
 │   └── logging.py      # Structured logging
 ├── ingest/
+│   ├── sources.py      # Source dispatch — routes to PC, NASA, CHIRPS, or CDS backend
 │   ├── stac_client.py  # STAC search against Planetary Computer
 │   ├── cog.py          # Download, clip, reproject, COG conversion
 │   ├── zonal.py        # Per-ward zonal statistics
-│   └── s3.py           # Upload COGs + manifests, date tracking
+│   ├── s3.py           # Upload COGs + manifests, date tracking
+│   └── parquet_bridge.py # COG → wide-format parquet for feature extraction
 ├── serve/
 │   ├── app.py          # FastAPI app, CORS, TiTiler mount
 │   ├── routes.py       # API endpoints (health, collections, predictions, tiles)
@@ -191,10 +201,11 @@ Date folders use **underscore format** (`YYYY_MM_DD`) to match Prism's `{YYYY_MM
 
 Triggered every 10 days by EventBridge. For each enabled dataset in `backend/config/datasets.yaml`:
 
-1. **STAC search** — query Planetary Computer for new imagery since last ingested date
+1. **Search** — query the appropriate backend (Planetary Computer STAC, NASA Earthdata, CHIRPS HTTP, or ERA5-Land CDS API) for new data since last ingested date
 2. **Download + process** — clip to Kenya bbox, reproject to EPSG:4326, convert to COG (tiled 256x256, DEFLATE compression, overviews)
 3. **Zonal stats** — compute per-ward statistics using `kenya_wards.geojson` boundary (12 Marsabit wards)
-4. **Upload** — write COG + stats to S3, record manifest
+4. **Parquet bridge** — for CHIRPS and ERA5-Land, also build wide-format parquets for the feature extraction pipeline
+5. **Upload** — write COG + stats to S3, record manifest
 
 Supports `--start-date` and `--end-date` overrides for backfills. Incremental by default (resumes from last ingested date per dataset).
 
@@ -209,9 +220,11 @@ Supports `--start-date` and `--end-date` overrides for backfills. Incremental by
 | MODIS LST Day | modis-11A2-061 | 1km | 8-day |
 | MODIS LST Night | modis-11A2-061 | 1km | 8-day |
 | MODIS SR (4 bands) | modis-09A1-061 | 500m | 8-day |
-| MODIS ET | modis-16A3GF-061 | 500m | Annual |
-| MODIS PET | modis-16A3GF-061 | 500m | Annual |
+| MODIS ET (8-day) | MOD16A2GF.061 (NASA Earthdata) | 500m | 8-day |
+| MODIS PET (8-day) | MOD16A2GF.061 (NASA Earthdata) | 500m | 8-day |
 | MODIS GPP | modis-17A2HGF-061 | 500m | 8-day |
+| CHIRPS Rainfall | UCSB direct HTTP | 5km | Monthly |
+| ERA5-Land Soil Moisture (4 layers) | Copernicus CDS API | 9km | Monthly |
 
 ## Serve API
 

@@ -22,6 +22,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
+from rasterio.enums import Resampling
 from rasterio.features import rasterize as rio_rasterize
 from rasterio.transform import from_bounds
 
@@ -493,9 +494,17 @@ def _rasterize_ward_predictions(
         transform=transform,
         nodata=nodata,
         compress="lzw",
+        tiled=True,
+        blockxsize=256,
+        blockysize=256,
     ) as dst:
         for band_idx, (band_data, tags) in enumerate(
             zip([band1, band2, band3], band_tags), start=1
         ):
             dst.write(band_data, band_idx)
             dst.update_tags(band_idx, **tags)
+
+    # Build overviews for COG compatibility with TiTiler
+    with rasterio.open(output_path, "r+") as dst:
+        dst.build_overviews([2, 4, 8, 16], Resampling.nearest)
+        dst.update_tags(ns="rio_overview", resampling="nearest")

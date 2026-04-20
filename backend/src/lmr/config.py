@@ -49,15 +49,24 @@ class ProcessingConfig(BaseModel):
     crs: str = "EPSG:4326"
 
 
+class ParquetBridgeConfig(BaseModel):
+    """Config for converting ingested COGs to wide-format parquets for feature extraction."""
+    collection_key: str               # matches COLLECTIONS key in ward_features.py
+    variable_map: dict[str, str]      # asset_key → variable name in parquet
+
+
 class DatasetConfig(BaseModel):
     name: str
     enabled: bool = True
+    source: str = "planetary_computer"  # "planetary_computer" | "nasa_earthdata" | "chirps_http" | "copernicus_cds"
+    hdf_subdataset: str | None = None  # HDF-EOS2 subdataset name (e.g. "ET_500m")
     collection: str
     assets: list[str]
     query_filters: dict[str, Any] = Field(default_factory=dict)
     temporal: TemporalConfig = TemporalConfig()
     processing: ProcessingConfig = ProcessingConfig()
     s3_key_template: str = "{prefix}/{dataset}/{date}/{asset}.tif"
+    parquet_bridge: ParquetBridgeConfig | None = None
 
 
 class ServeConfig(BaseModel):

@@ -143,6 +143,24 @@ d = yaml.safe_load(open('${REPO_ROOT}/backend/config/datasets.yaml'))
 print(str(d.get('inference', {}).get('enabled', False)).lower())
 " 2>/dev/null || echo "false")
 
+# ── Read serve schedule from datasets.yaml ──────────────────────────────────
+SCHEDULE_CONFIG=$(python3 -c "
+import yaml, json
+d = yaml.safe_load(open('${REPO_ROOT}/backend/config/datasets.yaml'))
+s = d.get('schedule', {})
+print(json.dumps({
+    'enabled': str(s.get('enabled', False)).lower(),
+    'start_hour': s.get('start_hour', 8),
+    'stop_hour': s.get('stop_hour', 18),
+    'timezone': s.get('timezone', 'America/Los_Angeles'),
+}))
+" 2>/dev/null || echo '{"enabled":"false","start_hour":8,"stop_hour":18,"timezone":"America/Los_Angeles"}')
+
+ENABLE_SCHEDULE=$(echo "${SCHEDULE_CONFIG}" | python3 -c "import sys,json; print(json.load(sys.stdin)['enabled'])")
+SCHEDULE_START=$(echo "${SCHEDULE_CONFIG}" | python3 -c "import sys,json; print(json.load(sys.stdin)['start_hour'])")
+SCHEDULE_STOP=$(echo "${SCHEDULE_CONFIG}" | python3 -c "import sys,json; print(json.load(sys.stdin)['stop_hour'])")
+SCHEDULE_TZ=$(echo "${SCHEDULE_CONFIG}" | python3 -c "import sys,json; print(json.load(sys.stdin)['timezone'])")
+
 echo "============================================"
 echo "  LMR Platform — Full Deployment"
 echo "============================================"
@@ -153,6 +171,7 @@ echo "  Image tag:     ${IMAGE_TAG}"
 echo "  VPC:           ${VPC_ID}"
 echo "  Subnets:       ${SUBNET_IDS}"
 echo "  Inference:     ${ENABLE_INFERENCE}"
+echo "  Schedule:      ${ENABLE_SCHEDULE} (${SCHEDULE_START}:00–${SCHEDULE_STOP}:00 ${SCHEDULE_TZ})"
 echo "  Skip backend:  ${SKIP_BACKEND}"
 echo "  Skip frontend: ${SKIP_FRONTEND}"
 echo ""
@@ -223,6 +242,10 @@ if [[ "$SKIP_BACKEND" == false ]]; then
     PARAMS="${PARAMS} VpcId=${VPC_ID}"
     PARAMS="${PARAMS} SubnetIds=${SUBNET_IDS}"
     PARAMS="${PARAMS} EnableInferencePipeline=${ENABLE_INFERENCE}"
+    PARAMS="${PARAMS} EnableServeSchedule=${ENABLE_SCHEDULE}"
+    PARAMS="${PARAMS} ScheduleStartHour=${SCHEDULE_START}"
+    PARAMS="${PARAMS} ScheduleStopHour=${SCHEDULE_STOP}"
+    PARAMS="${PARAMS} ScheduleTimezone=${SCHEDULE_TZ}"
 
     PACKAGED_TEMPLATE=$(mktemp /tmp/lmr-packaged-XXXXXXXX).yaml
     aws cloudformation package \

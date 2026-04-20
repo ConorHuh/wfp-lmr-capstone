@@ -6,7 +6,7 @@ Single Docker container for the WFP Livestock Mortality Risk data platform. Four
 
 ```bash
 uv sync --group dev              # install dependencies
-uv run pytest tests/ -v          # run tests (54 tests)
+uv run pytest tests/ -v          # run tests (78 tests)
 uv run lmr --mode serve --config config/datasets.yaml     # tile server
 uv run lmr --mode ingest --config config/datasets.yaml    # satellite ingestion
 ```
@@ -15,7 +15,7 @@ uv run lmr --mode ingest --config config/datasets.yaml    # satellite ingestion
 
 | Mode | Command | Fargate Resources | Purpose |
 |------|---------|-------------------|---------|
-| `ingest` | `lmr --mode ingest` | 1 vCPU / 4 GB | Pull MODIS data from Planetary Computer, convert to COGs, upload to S3 |
+| `ingest` | `lmr --mode ingest` | 1 vCPU / 4 GB | Pull data from Planetary Computer, NASA Earthdata, CHIRPS, and ERA5-Land; convert to COGs; upload to S3 |
 | `serve` | `lmr --mode serve` | 2 vCPU / 8 GB | FastAPI + TiTiler tile server behind ALB + CloudFront |
 | `feature-extract` | `lmr --mode feature-extract --time-start YYYY-MM --time-end YYYY-MM` | 4 vCPU / 16 GB | Ward-level satellite feature extraction |
 | `infer` | `lmr --mode infer --scheme biannual\|quadseasonal\|monthly` | 1 vCPU / 4 GB | Ensemble inference for one temporal scheme |
@@ -32,10 +32,12 @@ backend/
 │   ├── cli.py                     # Entrypoint (--mode ingest|serve|infer|feature-extract)
 │   ├── config.py                  # Pydantic config models + YAML loader
 │   ├── ingest/
+│   │   ├── sources.py             # Source dispatch (PC, NASA, CHIRPS, CDS)
 │   │   ├── stac_client.py         # STAC catalog search (Planetary Computer)
 │   │   ├── cog.py                 # Download, clip, reproject to COG
 │   │   ├── s3.py                  # S3 upload, key templating, manifests
-│   │   └── zonal.py               # Per-ward zonal statistics
+│   │   ├── zonal.py               # Per-ward zonal statistics
+│   │   └── parquet_bridge.py      # COG → wide-format parquet for feature extraction
 │   ├── serve/
 │   │   ├── app.py                 # FastAPI app factory + TiTiler mount
 │   │   ├── routes.py              # API endpoints (health, collections, predictions, tiles)
@@ -51,7 +53,7 @@ backend/
 │   └── common/
 │       ├── s3.py                  # Shared S3 client
 │       └── logging.py             # Structured JSON logging
-├── tests/                         # 54 pytest tests
+├── tests/                         # 78 pytest tests
 ├── Dockerfile                     # Python 3.11-slim + GDAL, built with uv
 └── pyproject.toml                 # Dependencies managed by uv
 ```

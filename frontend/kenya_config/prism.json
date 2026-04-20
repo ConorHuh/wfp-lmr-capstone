@@ -35,7 +35,8 @@
       ],
       "predictions": [
         "predictions_monthly",
-        "predictions_biannual"
+        "predictions_biannual",
+        "predictions_quadseasonal"
       ]
     }
   }
