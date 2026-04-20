@@ -117,18 +117,24 @@ def run_inference_preprocess(
 
         # 5. Impute NaNs using training medians
         nan_counts_before = X.isna().sum().sum()
-        for feat, median_val in train_medians.items():
-            if feat in X.columns:
-                X[feat] = X[feat].fillna(median_val)
+        missing_medians = [f for f in feature_names if f not in train_medians]
+        if missing_medians:
+            raise ValueError(
+                f"train_medians.json is missing {len(missing_medians)} feature(s) "
+                f"listed in feature_names.json: {missing_medians[:10]}"
+                f"{'...' if len(missing_medians) > 10 else ''}. "
+                f"Model artifact bundle is inconsistent."
+            )
+        for feat in feature_names:
+            X[feat] = X[feat].fillna(train_medians[feat])
         remaining = X.isna().sum().sum()
         if remaining > 0:
-            logger.warning("%d NaN(s) remain after median imputation — filling with 0", remaining)
-            X = X.fillna(0.0)
+            raise ValueError(
+                f"{remaining} NaN(s) remain after median imputation. "
+                f"Input data likely contains non-numeric or unrecoverable values."
+            )
         logger.info("Imputed %d NaN(s) using training medians", nan_counts_before)
 
-        # 6. Scale features for Ridge
-        X_scaled_arr = scaler.transform(X.values)
-        X_ridge = pd.DataFrame(X_scaled_arr, columns=feature_names, index=X.index)
 
         # 7. Write outputs to S3
         out_prefix = output_s3_base_uri.rstrip("/")
