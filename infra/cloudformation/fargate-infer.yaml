@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — Fargate Inference Task Definitions (feature-extract + infer)"
+
+Parameters:
+  Environment:
+    Type: String
+  ContainerImageUri:
+    Type: String
+  TaskRoleArn:
+    Type: String
+  ExecutionRoleArn:
+    Type: String
+  ClusterArn:
+    Type: String
+  VpcId:
+    Type: String
+
+Resources:
+  # --- Shared ---
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "LMR Inference Fargate tasks"
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # --- Feature extraction: 4 vCPU / 16 GB ---
+  FeatureExtractLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/lmr-feature-extract-${Environment}"
+      RetentionInDays: 30
+
+  FeatureExtractTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "lmr-feature-extract-${Environment}"
+      Cpu: "4096"
+      Memory: "16384"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: lmr-container
+          Image: !Ref ContainerImageUri
+          # Base command — Step Functions overrides with --time-start / --time-end
+          Command:
+            - "--mode"
+            - "feature-extract"
+            - "--config"
+            - "/app/config/datasets.yaml"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FeatureExtractLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: feature-extract
+
+  # --- Inference: 1 vCPU / 4 GB ---
+  InferLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/lmr-infer-${Environment}"
+      RetentionInDays: 30
+
+  InferTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "lmr-infer-${Environment}"
+      Cpu: "1024"
+      Memory: "4096"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: lmr-container
+          Image: !Ref ContainerImageUri
+          # Base command — Step Functions overrides with --scheme
+          Command:
+            - "--mode"
+            - "infer"
+            - "--config"
+            - "/app/config/datasets.yaml"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref InferLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: infer
+
+Outputs:
+  FeatureExtractTaskDefArn:
+    Value: !Ref FeatureExtractTaskDefinition
+  InferTaskDefArn:
+    Value: !Ref InferTaskDefinition
+  SecurityGroupId:
+    Value: !Ref SecurityGroup

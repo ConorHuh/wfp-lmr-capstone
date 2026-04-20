@@ -5,7 +5,7 @@
 ## Architecture Overview
 
 ```
-EventBridge cron (8-day) → Fargate Ingest → S3 (COGs + zonal stats)
+EventBridge cron (10-day) → Fargate Ingest → S3 (COGs + zonal stats)
                                                 │
                           Fargate Serve (Spot) ← reads COGs + model → CloudFront (HTTPS) → Prism (Amplify)
 ```
@@ -75,7 +75,7 @@ Fargate Spot provides a 70% discount vs standard Fargate ($85.06/month). The tra
 | vCPU | 1 | $0.04048/hr |
 | Memory | 4 GB | $0.004445/hr |
 
-Runs every 8 days (~3.75 times/month), ~3 hours per run.
+Runs every 10 days (~3 times/month), ~3 hours per run.
 
 | Period | Cost |
 |--------|------|

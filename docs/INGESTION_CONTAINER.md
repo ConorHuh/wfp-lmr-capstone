@@ -1,20 +1,31 @@
 # Ingestion Container — How It Works
 
-This doc explains the `lmr-container/` component of the LMR platform for teammates who need to understand what it does, how data flows through it, and how to interact with it.
+This doc explains the `backend/` component of the LMR platform for teammates who need to understand what it does, how data flows through it, and how to interact with it.
 
 ## What it does
 
-The ingestion container pulls satellite imagery from Microsoft's Planetary Computer (a public STAC catalog), converts it to Cloud Optimized GeoTIFFs (COGs), computes per-ward statistics, and uploads everything to S3. It runs on AWS Fargate on a recurring schedule (every 10 days) and is also the same container that will serve data to the Prism frontend (Phase 2).
+The backend container has four runtime modes, all packaged in a single Docker image:
+
+| Mode | Purpose |
+|------|---------|
+| `ingest` | Pull satellite data from Planetary Computer, NASA Earthdata, CHIRPS, and ERA5-Land; convert to COGs; upload to S3 |
+| `serve` | FastAPI + TiTiler tile server for the Prism frontend |
+| `feature-extract` | Ward-level satellite feature extraction for inference |
+| `infer` | Ensemble inference for one season scheme |
+
+The container runs on AWS Fargate. Ingestion is triggered every 10 days by EventBridge. After ingestion, a Step Functions pipeline runs feature extraction + inference automatically (when inference is enabled).
 
 ## Data flow
 
 ```
-Planetary Computer (STAC API)
-        │
-        │  1. Search for satellite imagery covering all of Kenya
-        │     (Sentinel-2, CHIRPS rainfall, etc.)
-        │
-        ▼
+Planetary Computer (STAC API)     NASA Earthdata     CHIRPS (HTTP)     ERA5-Land (CDS API)
+        │                              │                  │                    │
+        │  MODIS vegetation,           │  MODIS ET/PET    │  Rainfall          │  Soil moisture
+        │  temperature, reflectance    │  (HDF granules)  │  (monthly tifs)    │  (swvl1-4)
+        │                              │                  │                    │
+        └──────────────┬───────────────┴──────────────────┴────────────────────┘
+                       │
+                       ▼
 ┌─────────────────────────────────┐
 │  Ingest Container (Fargate)     │
 │                                 │
@@ -24,20 +35,53 @@ Planetary Computer (STAC API)
 │  5. Compute zonal stats for     │
 │     each ward in config         │
 │  6. Upload COGs + stats to S3   │
-│  7. Write manifest JSON         │
+│  7. Build parquets for feature  │
+│     extraction (CHIRPS, ERA5)   │
+│  8. Write manifest JSON         │
 └─────────────────────────────────┘
         │
         ▼
 S3: lmr-data-cogs-dev/
 ├── ingested/          ← full Kenya satellite COGs
-├── stats/             ← per-ward summary statistics (JSON)
+├── stats/             ← per-ward summary statistics (parquet)
 └── manifests/         ← what was ingested and when
         │
-        ▼
-S3 Event Notification triggers SageMaker Pipeline
+        ▼  (S3 event notification → Lambda → Step Functions)
+        │
+┌─────────────────────────────────┐
+│  Feature Extract (Fargate)      │
+│  --mode feature-extract         │
+│  4 vCPU / 16 GB                 │
+│                                 │
+│  Ward-level satellite feature   │
+│  engineering for all schemes    │
+└─────────────────────────────────┘
+        │
+        ▼  (3 parallel branches)
+┌─────────────────────────────────┐
+│  Infer (Fargate) × 3 parallel   │
+│  --mode infer --scheme {scheme}  │
+│  1 vCPU / 4 GB each             │
+│                                  │
+│  Ensemble model predictions:     │
+│  • biannual                      │
+│  • quadseasonal                  │
+│  • monthly                       │
+└─────────────────────────────────┘
         │
         ▼
-S3: predictions/       ← ML model output COGs
+S3: predictions/livestock-mortality/{YYYY_MM_DD}/
+├── ward_predictions.csv
+├── ward_predictions.geojson
+└── ward_predictions.tif    ← 3-band COG (risk, confidence, SHAP)
+        │
+        ▼
+┌─────────────────────────────────┐
+│  Serve Container (Fargate)       │
+│  --mode serve                    │
+│  FastAPI + TiTiler → ALB →       │
+│  CloudFront (HTTPS) → Prism      │
+└─────────────────────────────────┘
 ```
 
 ## Key design decisions
@@ -52,7 +96,7 @@ The container always pulls satellite data for **all of Kenya**. It does not filt
 
 ### Adding a new county or region
 
-Edit `config/datasets.yaml` and add to the `admin_levels` filter:
+Edit `backend/config/datasets.yaml` and add to the `admin_levels` filter:
 
 ```yaml
 admin_levels:
@@ -70,7 +114,7 @@ No code changes, no re-ingestion. The next run computes stats for the new wards 
 
 ### Adding a new dataset
 
-Append a block to the `datasets` list in `config/datasets.yaml`:
+Append a block to the `datasets` list in `backend/config/datasets.yaml`:
 
 ```yaml
 datasets:
@@ -88,6 +132,19 @@ datasets:
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 ```
 
+### Data sources
+
+The ingest pipeline supports four source backends, configured via the `source` field on each dataset:
+
+| Source | Config value | Auth | Examples |
+|--------|-------------|------|----------|
+| Planetary Computer | `planetary_computer` (default) | PC signing (automatic) | MODIS NDVI, EVI, LAI, LST, SR, GPP |
+| NASA Earthdata | `nasa_earthdata` | `EARTHDATA_USERNAME` + `EARTHDATA_PASSWORD` env vars | MODIS ET/PET (8-day HDF) |
+| CHIRPS rainfall | `chirps_http` | None required | Monthly rainfall GeoTIFFs from UCSB |
+| ERA5-Land soil moisture | `copernicus_cds` | `CDSAPI_URL` + `CDSAPI_KEY` env vars | swvl1-4 monthly soil moisture layers |
+
+CHIRPS and ERA5-Land datasets also have a `parquet_bridge` config that automatically converts ingested COGs into the wide-format parquets that the feature extraction pipeline (`ward_features.py`) expects. This bridges the gap between the COG-based ingest pipeline and the parquet-based inference pipeline.
+
 ### Incremental ingestion
 
 After the first run, the container only pulls **new data** since the last ingestion. It checks S3 for the latest date folder per dataset and sets the STAC search window accordingly. Use `--full-history` to override this and pull everything.
@@ -97,45 +154,24 @@ After the first run, the container only pulls **new data** since the last ingest
 ```
 lmr-data-cogs-dev/
 │
-├── ingested/ndvi-sentinel2/2026-03-09/B04.tif    ← raw satellite band (full Kenya COG)
-├── ingested/ndvi-sentinel2/2026-03-09/B08.tif
-├── ingested/rainfall-chirps/2026-03-05/precip.tif
+├── ingested/modis-ndvi/2026_01_17/250m_16_days_NDVI.tif   ← satellite COG (full Kenya)
+├── ingested/modis-lai/2026_01_25/Lai_500m.tif
 │
-├── stats/ndvi-sentinel2/2026-03-09/admin3_B04.json  ← per-ward zonal stats
-│   # Contains: [{id: "KE0842", name: "Marsabet central", stats: {mean, median, min, max, ...}}, ...]
+├── stats/modis-ndvi/2026_01_17/admin3_250m_16_days_NDVI.json  ← per-ward zonal stats
 │
-├── predictions/livestock-mortality/2026-03-09/prediction.tif  ← from SageMaker (your output)
+├── models/inference_bundle/biannual/    ← trained ensemble model artifacts
+├── models/inference_bundle/monthly/
+├── models/inference_bundle/quadseasonal/
 │
-└── manifests/ingest-2026-03-09T00:00:00Z.json     ← log of what was ingested
+├── inference/ward_features_*/           ← feature extraction outputs
+│
+├── predictions/livestock-mortality/2019_12_31/   ← biannual OND 2019
+│   ├── ward_predictions.csv
+│   ├── ward_predictions.geojson
+│   └── ward_predictions.tif             ← 3-band COG
+│
+└── manifests/ingest-2026-03-09T00:00:00Z.json   ← ingestion log
 ```
-
-## For the SageMaker pipeline team
-
-Your pipeline is triggered automatically when a new manifest appears in `manifests/`. The manifest JSON tells you exactly what was ingested:
-
-```json
-{
-  "run_id": "ingest-2026-03-09T00:00:00Z",
-  "timestamp": "2026-03-09T01:23:45Z",
-  "datasets_processed": [
-    {
-      "name": "ndvi-sentinel2",
-      "items_ingested": 2,
-      "s3_keys": ["ingested/ndvi-sentinel2/2026-03-09/B04.tif", "..."],
-      "stats_keys": ["stats/ndvi-sentinel2/2026-03-09/admin3_B04.json", "..."],
-      "stac_items": ["S2A_MSIL2A_20260309..."]
-    }
-  ],
-  "status": "success"
-}
-```
-
-**Your output contract:** Write prediction COGs to:
-```
-s3://lmr-data-cogs-dev/predictions/{model-name}/{date}/prediction.tif
-```
-
-See `docs/PLAN_SAGEMAKER_PIPELINE.md` for the full integration spec.
 
 ## Current ward coverage
 
@@ -168,7 +204,10 @@ All deployed via CloudFormation (`lmr-platform-dev` stack):
 | S3 Bucket | `lmr-data-cogs-dev` |
 | ECR Repository | `lmr-container-dev` |
 | EventBridge Rule | `lmr-ingest-schedule-dev` (every 10 days) |
-| Log Group | `/ecs/lmr-ingest-dev` |
+| Step Functions | `lmr-ward-inference-dev` (when inference enabled) |
+| CloudFront | HTTPS proxy for tile server |
+| Amplify | Prism frontend hosting |
+| Log Groups | `/ecs/lmr-ingest-dev`, `/ecs/lmr-serve-dev`, `/ecs/lmr-feature-extract-dev`, `/ecs/lmr-infer-dev` |
 
 ## Running it manually
 
@@ -178,7 +217,7 @@ aws ecs run-task \
   --cluster lmr-cluster-dev \
   --task-definition lmr-ingest-dev \
   --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[subnet-0dad0b63d1d403190],assignPublicIp=ENABLED}" \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],assignPublicIp=ENABLED}" \
   --region us-east-1
 
 # Trigger a full historical ingest
@@ -186,7 +225,7 @@ aws ecs run-task \
   --cluster lmr-cluster-dev \
   --task-definition lmr-ingest-dev \
   --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[subnet-0dad0b63d1d403190],assignPublicIp=ENABLED}" \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],assignPublicIp=ENABLED}" \
   --overrides '{"containerOverrides":[{"name":"lmr-container","command":["--mode","ingest","--config","/app/config/datasets.yaml","--full-history"]}]}' \
   --region us-east-1
 ```
@@ -194,8 +233,9 @@ aws ecs run-task \
 ## Local development
 
 ```bash
-cd lmr-container
+cd backend
 uv sync                                              # install deps
 uv run pytest -v                                     # run tests
 uv run lmr --mode ingest --config config/datasets.yaml  # run locally
+uv run lmr --mode serve --config config/datasets.yaml   # run tile server locally
 ```

@@ -1,0 +1,58 @@
+[project]
+name = "lmr-container"
+version = "0.1.0"
+description = "LMR Data Platform — ingest satellite data and serve COGs"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.34",
+    "fastapi>=0.110",
+    "geopandas>=0.14",
+    "joblib>=1.3",
+    "planetary-computer>=1.0",
+    "pydantic>=2.0",
+    "pystac-client>=0.7",
+    "pyyaml>=6.0",
+    "rasterio>=1.3",
+    "rasterstats>=0.19",
+    "scikit-learn>=1.4",
+    "titiler.core>=0.18",
+    "uvicorn>=0.29",
+    "xgboost>=2.0",
+    "lightgbm>=4.0",
+    "shap>=0.45",
+    "s3fs>=2024.0",
+    "pyproj>=3.6",
+    "pyarrow>=23.0.1",
+    "earthaccess>=0.12",
+    "h5netcdf>=1.8.1",
+    "netcdf4>=1.7.4",
+    "cdsapi>=0.7",
+    "xarray>=2024.0",
+]
+
+[project.scripts]
+lmr = "lmr.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.uv]
+override-dependencies = [
+    # Drop CUDA GPU library — we run on Fargate CPU
+    "nvidia-nccl-cu12 ; sys_platform == 'never'",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lmr"]
+
+[dependency-groups]
+dev = [
+    "moto>=5.0",
+    "pytest>=8.0",
+    "ruff>=0.3",
+]

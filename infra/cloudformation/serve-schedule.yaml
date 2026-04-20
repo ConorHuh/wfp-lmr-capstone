@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — Scheduled Serve Task Scaling (scale to zero outside working hours)"
+
+Parameters:
+  Environment:
+    Type: String
+  ClusterName:
+    Type: String
+    Description: "ECS cluster name (not ARN)"
+  ServiceName:
+    Type: String
+    Description: "ECS service name"
+  StartHour:
+    Type: Number
+    Default: 8
+    Description: "Hour (0-23) to scale up to 1 task"
+  StopHour:
+    Type: Number
+    Default: 18
+    Description: "Hour (0-23) to scale down to 0 tasks"
+  Timezone:
+    Type: String
+    Default: "America/Los_Angeles"
+    Description: "IANA timezone for schedule (e.g. America/Los_Angeles, UTC)"
+
+Resources:
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 1
+      MinCapacity: 0
+      ResourceId: !Sub "service/${ClusterName}/${ServiceName}"
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      # IAM role is auto-created by Application Auto Scaling for ECS
+      ScheduledActions:
+        - ScheduledActionName: !Sub "lmr-serve-scale-up-${Environment}"
+          Schedule: !Sub "cron(0 ${StartHour} * * ? *)"
+          Timezone: !Ref Timezone
+          ScalableTargetAction:
+            MinCapacity: 1
+            MaxCapacity: 1
+        - ScheduledActionName: !Sub "lmr-serve-scale-down-${Environment}"
+          Schedule: !Sub "cron(0 ${StopHour} * * ? *)"
+          Timezone: !Ref Timezone
+          ScalableTargetAction:
+            MinCapacity: 0
+            MaxCapacity: 0

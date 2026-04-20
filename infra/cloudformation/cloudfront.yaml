@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — CloudFront HTTPS Distribution"
+
+Parameters:
+  Environment:
+    Type: String
+  AlbDnsName:
+    Type: String
+    Description: "DNS name of the serve ALB (origin)"
+
+Resources:
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "LMR Platform HTTPS proxy (${Environment})"
+        DefaultCacheBehavior:
+          TargetOriginId: ALBOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          ForwardedValues:
+            QueryString: true
+            Headers:
+              - Origin
+              - Authorization
+            Cookies:
+              Forward: none
+          DefaultTTL: 86400
+          MinTTL: 0
+          MaxTTL: 31536000
+          Compress: true
+        Origins:
+          - Id: ALBOrigin
+            DomainName: !Ref AlbDnsName
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+        PriceClass: PriceClass_100
+        HttpVersion: http2
+
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  DistributionDomain:
+    Value: !GetAtt Distribution.DomainName

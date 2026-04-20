@@ -1,0 +1,501 @@
+# datasets.yaml — LMR Data Platform Configuration
+
+# Global settings
+global:
+  region: "us-east-1"
+  schedule_interval_days: 10
+  s3_bucket: "lmr-data-cogs-dev"
+  s3_prefix: "ingested"
+  log_level: "INFO"
+
+# Area of interest — full Kenya extent for ingestion
+aoi:
+  name: "kenya"
+  # Bounding box [west, south, east, north] — full Kenya
+  bbox: [33.91, -4.80, 41.91, 5.41]
+
+# Admin boundary levels for downstream filtering and zonal stats
+# Ingestion pulls country-wide data; admin_levels control what gets stats
+admin_levels:
+  - level: 3
+    name: "wards"
+    boundary_file: "boundaries/kenya_wards.geojson"
+    id_field: "pcode"
+    name_field: "iebc_wards"
+    filter:
+      field: "first_dist"
+      values: ["Marsabit"]
+
+# STAC catalog configuration
+stac:
+  catalog_url: "https://planetarycomputer.microsoft.com/api/stac/v1"
+  requires_signing: true
+
+# Dataset definitions — matched to feature_engineering/planetary_computer_downloader.py
+#
+# All collections/bands/resolutions below mirror the downloader exactly.
+# Datasets in the downloader and configured here (enabled):
+#     ndvi_250m, evi_250m, lai, fpar, lst_day, lst_night,
+#     sr_red/nir/swir1/swir2, fire_mask/frp, et/pet,
+#     s2_red/nir/swir1, s1_vv/vh,
+#     dem (static), jrc_occurrence/seasonality (static), worldcover (static)
+#
+# Datasets NOT in the downloader — from other sources (disabled, pending team input):
+#     - CHIRPS rainfall — not on Planetary Computer
+#     - Soil moisture — not on Planetary Computer
+#     - GPP (modis-17A2H-061) — gpp.parquet exists in S3 but was not in the downloader
+
+datasets:
+  # ── MODIS Vegetation Indices (250m, 16-day) ──────────────────────────────
+  - name: "modis-ndvi"
+    enabled: true
+    collection: "modis-13Q1-061"
+    assets: ["250m_16_days_NDVI"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 250
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "modis-evi"
+    enabled: true
+    collection: "modis-13Q1-061"
+    assets: ["250m_16_days_EVI"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 250
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── MODIS LAI / FPAR (500m, 8-day) ──────────────────────────────────────
+  - name: "modis-lai"
+    enabled: true
+    collection: "modis-15A2H-061"
+    assets: ["Lai_500m"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "modis-fpar"
+    enabled: true
+    collection: "modis-15A2H-061"
+    assets: ["Fpar_500m"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── MODIS Land Surface Temperature (1km, 8-day) ─────────────────────────
+  - name: "modis-lst-day"
+    enabled: true
+    collection: "modis-11A2-061"
+    assets: ["LST_Day_1km"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 1000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "modis-lst-night"
+    enabled: true
+    collection: "modis-11A2-061"
+    assets: ["LST_Night_1km"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 1000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── MODIS Surface Reflectance (500m, 8-day) ─────────────────────────────
+  - name: "modis-sr"
+    enabled: true
+    collection: "modis-09A1-061"
+    assets: ["sur_refl_b01", "sur_refl_b02", "sur_refl_b06", "sur_refl_b07"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── MODIS Fire (1km, daily) ─────────────────────────────────────────────
+  - name: "modis-fire"
+    enabled: false
+    collection: "modis-14A1-061"
+    assets: ["FireMask", "MaxFRP"]
+    temporal:
+      lookback_days: 30
+    processing:
+      output_format: "cog"
+      resolution_m: 1000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── MODIS ET/PET (500m, annual gap-filled — DEPRECATED) ──────────────────
+  # Replaced by 8-day products from NASA Earthdata below.
+  - name: "modis-et"
+    enabled: false
+    collection: "modis-16A3GF-061"
+    assets: ["ET_500m"]
+    temporal:
+      lookback_days: 1500
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "modis-pet"
+    enabled: false
+    collection: "modis-16A3GF-061"
+    assets: ["PET_500m"]
+    temporal:
+      lookback_days: 1500
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── MODIS ET/PET (500m, 8-day gap-filled) — NASA Earthdata ─────────────
+  # MOD16A2GF.061 — gap-filled, ~6 week lag. Replaces annual PC source.
+  # Requires EARTHDATA_USERNAME / EARTHDATA_PASSWORD env vars.
+  - name: "modis-et-8day"
+    enabled: true
+    source: "nasa_earthdata"
+    hdf_subdataset: "ET_500m"
+    collection: "MOD16A2GF.061"
+    assets: ["ET_500m"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "modis-pet-8day"
+    enabled: true
+    source: "nasa_earthdata"
+    hdf_subdataset: "PET_500m"
+    collection: "MOD16A2GF.061"
+    assets: ["PET_500m"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── Sentinel-2 L2A (10-20m, 5-day revisit) ─────────────────────────────
+  # Downloader uses 10m for B04/B08, 20m for B11. We use 10m for all
+  # (B11 upsampled from native 20m) to match downloader resolution.
+  - name: "s2-red"
+    enabled: false
+    collection: "sentinel-2-l2a"
+    assets: ["B04"]
+    query_filters:
+      eo:cloud_cover:
+        lt: 30
+    temporal:
+      lookback_days: 16
+    processing:
+      output_format: "cog"
+      resolution_m: 10
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "s2-nir"
+    enabled: false
+    collection: "sentinel-2-l2a"
+    assets: ["B08"]
+    query_filters:
+      eo:cloud_cover:
+        lt: 30
+    temporal:
+      lookback_days: 16
+    processing:
+      output_format: "cog"
+      resolution_m: 10
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "s2-swir1"
+    enabled: false
+    collection: "sentinel-2-l2a"
+    assets: ["B11"]
+    query_filters:
+      eo:cloud_cover:
+        lt: 30
+    temporal:
+      lookback_days: 16
+    processing:
+      output_format: "cog"
+      resolution_m: 20
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── Sentinel-1 GRD SAR (10m, 12-day revisit) ──────────────────────────
+  - name: "s1-vv"
+    enabled: false
+    collection: "sentinel-1-grd"
+    assets: ["vv"]
+    temporal:
+      lookback_days: 16
+    processing:
+      output_format: "cog"
+      resolution_m: 10
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "s1-vh"
+    enabled: false
+    collection: "sentinel-1-grd"
+    assets: ["vh"]
+    temporal:
+      lookback_days: 16
+    processing:
+      output_format: "cog"
+      resolution_m: 10
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── Static datasets (one-time ingest with --full-history) ───────────────
+  - name: "dem"
+    enabled: false
+    collection: "cop-dem-glo-30"
+    assets: ["data"]
+    temporal:
+      lookback_days: 36500  # effectively all-time for static data
+    processing:
+      output_format: "cog"
+      resolution_m: 30
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "jrc-water"
+    enabled: false
+    collection: "jrc-gsw"
+    assets: ["occurrence", "seasonality"]
+    temporal:
+      lookback_days: 36500
+    processing:
+      output_format: "cog"
+      resolution_m: 30
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  - name: "worldcover"
+    enabled: false
+    collection: "esa-worldcover"
+    assets: ["map"]
+    temporal:
+      lookback_days: 36500
+    processing:
+      output_format: "cog"
+      resolution_m: 10
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+  # ── CHIRPS rainfall (5km, monthly) — direct HTTP, no auth ──────────────
+  # Source: UCSB Climate Hazards Center. Monthly GeoTIFFs via HTTP.
+  # Maps to "chirps" collection in ward_features.py COLLECTIONS.
+  - name: "chirps-rainfall"
+    enabled: true
+    source: "chirps_http"
+    collection: "chirps-v2.0"
+    assets: ["ppt"]
+    temporal:
+      lookback_days: 90
+    processing:
+      output_format: "cog"
+      resolution_m: 5000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+    parquet_bridge:
+      collection_key: "chirps"
+      variable_map:
+        ppt: "ppt"
+
+  # ── ERA5-Land soil moisture (9km, monthly) — Copernicus CDS API ────────
+  # Source: ECMWF ERA5-Land monthly means. Requires CDSAPI_URL + CDSAPI_KEY env vars.
+  # 4 layers: swvl1 (0-7cm), swvl2 (7-28cm), swvl3 (28-100cm), swvl4 (100-289cm).
+  # Maps to "soil_moisture" collection in ward_features.py COLLECTIONS.
+  - name: "era5-soil-moisture"
+    enabled: true
+    source: "copernicus_cds"
+    collection: "reanalysis-era5-land-monthly-means"
+    assets: ["swvl1", "swvl2", "swvl3", "swvl4"]
+    temporal:
+      lookback_days: 90
+    processing:
+      output_format: "cog"
+      resolution_m: 9000
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+    parquet_bridge:
+      collection_key: "soil_moisture"
+      variable_map:
+        swvl1: "swvl1"
+        swvl2: "swvl2"
+        swvl3: "swvl3"
+        swvl4: "swvl4"
+
+  # GPP — gap-filled 8-day product matches v3 pipeline (modis-17A2HGF-061)
+  - name: "modis-gpp"
+    enabled: true
+    collection: "modis-17A2HGF-061"
+    assets: ["Gpp_500m"]
+    temporal:
+      lookback_days: 1100
+    processing:
+      output_format: "cog"
+      resolution_m: 500
+      crs: "EPSG:4326"
+    s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
+
+# Serve schedule — scale the serve task to zero outside working hours.
+# Set enabled: true to activate scheduled scaling; false to run 24/7.
+# Times are cron-style in the specified timezone (IANA format).
+# Estimated savings: ~60% of Fargate serve cost (~$55/mo on a 10hr/day schedule).
+schedule:
+  enabled: true
+  start_hour: 8    # Scale up to 1 task at 8:00 AM
+  stop_hour: 18    # Scale down to 0 tasks at 6:00 PM
+  timezone: "America/Los_Angeles"
+
+# Serve mode configuration
+serve:
+  cors_origins: ["*"]
+  presigned_url_expiry_seconds: 3600
+  predictions_prefix: "predictions"
+
+# Inference configuration
+# Set enabled: true to deploy Step Functions inference pipeline (triggered after each ingest).
+# Set enabled: false to skip inference entirely — WFP can use this container for other workflows.
+inference:
+  enabled: true
+  model_name: "livestock-mortality"
+  model_s3_prefix: "s3://lmr-data-cogs-dev/models/inference_bundle"
+  ward_boundaries_s3_key: "models/geoBoundaries-KEN-ADM3.geojson"
+  output_bucket: "lmr-data-cogs-dev"
+  output_prefix: "predictions/livestock-mortality"
+  boundary_file: "boundaries/kenya_wards.geojson"
+  schemes:
+    - biannual
+    - quadseasonal
+    - monthly
+  feature_window_months: 36
+  n_sample_points: 9
+  # Source satellite parquets for feature extraction
+  source_data_bucket: "lmr-data-cogs-dev"
+  source_data_prefix: "parquets"
+
+# Feature labels for prediction tooltips
+# Short labels are displayed in the PRISM tooltip; full descriptions are for reference.
+# Covers all features that appear in top_features from the XGBoost model.
+feature_labels:
+  dem_std:
+    short: "Elevation Std Dev"
+    full: "DEM std — elevation standard deviation in 20km window; proxy for terrain roughness"
+  evi_250m:
+    short: "EVI (250m)"
+    full: "EVI 250m — Enhanced Vegetation Index (soil-adjusted) from MODIS at 500m res"
+  jrc_occurrence:
+    short: "Water Occurrence"
+    full: "JRC water occurrence — percentage of time water present 1984–2020 (JRC Global Surface Water 30m)"
+  lst_day_roll3_mean:
+    short: "LST Day (3-mo avg)"
+    full: "LST 3-month rolling mean — mean daytime land surface temperature over past 3 months"
+  lswi:
+    short: "Land Surface Water Index"
+    full: "LSWI — Land Surface Water Index; sensitive to both leaf and soil moisture (NIR-SWIR2)/(NIR+SWIR2)"
+  months_since_fire:
+    short: "Months Since Fire"
+    full: "Months since fire — months since most recent MODIS fire detection"
+  ndvi_250m:
+    short: "NDVI (250m)"
+    full: "NDVI 250m — Normalized Difference Vegetation Index from MODIS at 250m resolution"
+  ndvi_250m_lag2:
+    short: "NDVI (2-mo lag)"
+    full: "NDVI 2-month lag — NDVI value from 2 months prior"
+  ndvi_250m_roll3_mean:
+    short: "NDVI (3-mo avg)"
+    full: "NDVI 3-month rolling mean — mean NDVI over past 3 months"
+  ndvi_anom:
+    short: "NDVI Anomaly"
+    full: "NDVI anomaly — NDVI minus long-term calendar-month mean (expanding window, no leakage)"
+  ndvi_anom_std:
+    short: "NDVI Anomaly Std Dev"
+    full: "NDVI anomaly standard deviation — variability of NDVI anomaly"
+  pdsi_lag4:
+    short: "PDSI (4-mo lag)"
+    full: "Palmer Drought Severity Index from 4 months prior"
+  ppt:
+    short: "Precipitation"
+    full: "Precipitation — CHIRPS monthly rainfall total (mm/month)"
+  ppt_anom:
+    short: "Precipitation Anomaly"
+    full: "Precipitation anomaly — CHIRPS rainfall minus long-term calendar-month mean"
+  ppt_roll3_mean:
+    short: "Precipitation (3-mo avg)"
+    full: "Precipitation 3-month rolling mean — mean monthly rainfall over past 3 months (mm/month)"
+  soil_anom:
+    short: "Soil Moisture Anomaly"
+    full: "Soil moisture anomaly — soil moisture minus long-term calendar-month mean"
+  soil_anom_roll3:
+    short: "Soil Moisture Anom (3-mo avg)"
+    full: "Soil moisture anomaly 3-month rolling mean — sustained soil moisture departure"
+  soil_composite:
+    short: "Soil Moisture Composite"
+    full: "Soil moisture composite — 0.4×swvl1 + 0.35×swvl2 + 0.15×swvl3 + 0.10×swvl4; depth-weighted aggregate"
+  soil_composite_anom:
+    short: "Soil Composite Anomaly"
+    full: "Soil composite anomaly — composite minus long-term calendar-month mean (expanding window)"
+  soil_shallow_deep:
+    short: "Soil Shallow/Deep Ratio"
+    full: "Soil shallow/deep ratio — swvl1/swvl4; surface vs deep storage contrast"
+  sr_nir_lag2:
+    short: "NIR Reflectance (2-mo lag)"
+    full: "MODIS Band 2 (NIR) surface reflectance from 2 months prior"
+  sr_nir_lag3:
+    short: "NIR Reflectance (3-mo lag)"
+    full: "MODIS Band 2 (NIR) surface reflectance from 3 months prior"
+  swvl2:
+    short: "Soil Moisture Layer 2"
+    full: "Soil moisture layer 2 — ERA5-Land volumetric soil water 7–28cm depth (m³/m³)"
+  swvl3:
+    short: "Soil Moisture Layer 3"
+    full: "Soil moisture layer 3 — ERA5-Land volumetric soil water 28–100cm depth (m³/m³)"
+  swvl4:
+    short: "Soil Moisture Layer 4"
+    full: "Soil moisture layer 4 — ERA5-Land volumetric soil water 100–289cm depth (m³/m³)"
+  tci:
+    short: "Temp Condition Index"
+    full: "TCI — Temperature Condition Index; 0=hottest ever, 100=coolest"
+  tci_roll3_mean:
+    short: "TCI (3-mo avg)"
+    full: "TCI 3-month rolling mean — mean Temperature Condition Index over past 3 months"
+  vhi_lag1:
+    short: "Vegetation Health (1-mo lag)"
+    full: "VHI 1-month lag — Vegetation Health Index from 1 month prior"
+  wc_water:
+    short: "Water Cover Fraction"
+    full: "WorldCover water — fraction of water bodies in 20km window"

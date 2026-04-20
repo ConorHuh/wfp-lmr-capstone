@@ -1,0 +1,270 @@
+{
+  "admin_boundaries": {
+    "type": "boundary",
+    "path": "data/kenya/ken_bnd_adm3_WFP.json",
+    "opacity": 0.8,
+    "admin_code": "pcode",
+    "admin_level_codes": ["first_prov", "first_dist", "pcode"],
+    "admin_level_names": ["first_prov", "first_dist", "iebc_wards"],
+    "admin_level_local_names": ["first_prov", "first_dist", "iebc_wards"],
+    "styles": {
+      "fill": { "fill-opacity": 0 },
+      "line": { "line-color": "gray", "line-width": 1, "line-opacity": 0.8 }
+    }
+  },
+  "modis_ndvi": {
+    "title": "MODIS NDVI (250m, 16-day)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-ndvi/{YYYY-MM-DD}/250m_16_days_NDVI.tif&rescale=-2000,10000&colormap_name=ylgn",
+    "dates": ["2026-01-17","2026-01-25","2026-02-02","2026-02-10","2026-02-26"],
+    "legend_text": "Normalized Difference Vegetation Index - vegetation health indicator (scale /10000)",
+    "legend": [
+      { "value": "< 0", "color": "#d73027" },
+      { "value": "0.2", "color": "#fee08b" },
+      { "value": "0.4", "color": "#d9ef8b" },
+      { "value": "0.6", "color": "#91cf60" },
+      { "value": "0.8", "color": "#1a9850" },
+      { "value": "> 1.0", "color": "#006837" }
+    ]
+  },
+  "modis_evi": {
+    "title": "MODIS EVI (250m, 16-day)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-evi/{YYYY-MM-DD}/250m_16_days_EVI.tif&rescale=-2000,10000&colormap_name=ylgn",
+    "dates": ["2026-01-17","2026-01-25","2026-02-02","2026-02-10","2026-02-26"],
+    "legend_text": "Enhanced Vegetation Index - improved vegetation signal in dense canopy areas (scale /10000)",
+    "legend": [
+      { "value": "< 0", "color": "#d73027" },
+      { "value": "0.2", "color": "#fee08b" },
+      { "value": "0.4", "color": "#d9ef8b" },
+      { "value": "0.6", "color": "#91cf60" },
+      { "value": "0.8", "color": "#1a9850" },
+      { "value": "> 1.0", "color": "#006837" }
+    ]
+  },
+  "modis_lst_day": {
+    "title": "MODIS LST Day (1km, 8-day)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-lst-day/{YYYY-MM-DD}/LST_Day_1km.tif&rescale=13000,16000&colormap_name=ylorrd",
+    "dates": ["2026-01-25","2026-02-02","2026-02-10","2026-02-18","2026-03-06"],
+    "legend_text": "Daytime Land Surface Temperature (Kelvin x 50, e.g. 14500 = 290K = 17C)",
+    "legend": [
+      { "value": "Cool (<20C)", "color": "#ffffb2" },
+      { "value": "Warm (25C)", "color": "#fecc5c" },
+      { "value": "Hot (30C)", "color": "#fd8d3c" },
+      { "value": "Very Hot (35C)", "color": "#f03b20" },
+      { "value": "Extreme (>40C)", "color": "#bd0026" }
+    ]
+  },
+  "modis_lst_night": {
+    "title": "MODIS LST Night (1km, 8-day)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-lst-night/{YYYY-MM-DD}/LST_Night_1km.tif&rescale=12000,15000&colormap_name=ylorrd",
+    "dates": ["2026-01-25","2026-02-02","2026-02-10","2026-02-18","2026-03-06"],
+    "legend_text": "Nighttime Land Surface Temperature (Kelvin x 50)",
+    "legend": [
+      { "value": "Cool (<10C)", "color": "#ffffb2" },
+      { "value": "Mild (15C)", "color": "#fecc5c" },
+      { "value": "Warm (20C)", "color": "#fd8d3c" },
+      { "value": "Hot (25C)", "color": "#f03b20" },
+      { "value": "Very Hot (>30C)", "color": "#bd0026" }
+    ]
+  },
+  "modis_lai": {
+    "title": "MODIS LAI (500m, 8-day)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-lai/{YYYY-MM-DD}/Lai_500m.tif&rescale=0,70&colormap_name=greens",
+    "dates": ["2026-01-25","2026-02-02","2026-02-10","2026-02-18","2026-03-06"],
+    "legend_text": "Leaf Area Index - total one-sided leaf area per unit ground area (scale /10)",
+    "legend": [
+      { "value": "0 (Bare)", "color": "#f7fcf5" },
+      { "value": "1", "color": "#c7e9c0" },
+      { "value": "2", "color": "#74c476" },
+      { "value": "3", "color": "#31a354" },
+      { "value": "> 4", "color": "#006d2c" }
+    ]
+  },
+  "modis_fpar": {
+    "title": "MODIS FPAR (500m, 8-day)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-fpar/{YYYY-MM-DD}/Fpar_500m.tif&rescale=0,100&colormap_name=greens",
+    "dates": ["2026-01-25","2026-02-02","2026-02-10","2026-02-18","2026-03-06"],
+    "legend_text": "Fraction of Photosynthetically Active Radiation absorbed by vegetation (%)",
+    "legend": [
+      { "value": "0%", "color": "#f7fcf5" },
+      { "value": "25%", "color": "#c7e9c0" },
+      { "value": "50%", "color": "#74c476" },
+      { "value": "75%", "color": "#31a354" },
+      { "value": "100%", "color": "#006d2c" }
+    ]
+  },
+  "modis_sr_red": {
+    "title": "MODIS Surface Reflectance Red (500m)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-sr/{YYYY-MM-DD}/sur_refl_b01.tif&rescale=0,5000&colormap_name=greys",
+    "dates": ["2026-01-25","2026-02-02","2026-02-10","2026-02-18","2026-03-06"],
+    "legend_text": "MODIS Band 1 (Red) surface reflectance",
+    "legend": [
+      { "value": "Low", "color": "#000000" },
+      { "value": "Medium", "color": "#808080" },
+      { "value": "High", "color": "#ffffff" }
+    ]
+  },
+  "modis_sr_nir": {
+    "title": "MODIS Surface Reflectance NIR (500m)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-sr/{YYYY-MM-DD}/sur_refl_b02.tif&rescale=0,7000&colormap_name=greys",
+    "dates": ["2026-01-25","2026-02-02","2026-02-10","2026-02-18","2026-03-06"],
+    "legend_text": "MODIS Band 2 (NIR) surface reflectance",
+    "legend": [
+      { "value": "Low", "color": "#000000" },
+      { "value": "Medium", "color": "#808080" },
+      { "value": "High", "color": "#ffffff" }
+    ]
+  },
+  "modis_gpp": {
+    "title": "MODIS GPP (500m, 8-day)",
+    "type": "static_raster",
+    "opacity": 0.9,
+    "min_zoom": 0,
+    "max_zoom": 14,
+    "base_url": "https://d31fsorf4vwo9f.cloudfront.net/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=s3://lmr-data-cogs-dev/ingested/modis-gpp/{YYYY-MM-DD}/Gpp_500m.tif&rescale=0,500&colormap_name=ylgn",
+    "dates": ["2026-03-06"],
+    "legend_text": "Gross Primary Production - total carbon fixed by photosynthesis (kg C/m2 x 10000)",
+    "legend": [
+      { "value": "0", "color": "#f7fcf5" },
+      { "value": "Low", "color": "#c7e9c0" },
+      { "value": "Medium", "color": "#74c476" },
+      { "value": "High", "color": "#31a354" },
+      { "value": "Very High", "color": "#006d2c" }
+    ]
+  },
+  "predictions_monthly": {
+    "title": "Monthly Predictions",
+    "type": "admin_level_data",
+    "path": "https://d31fsorf4vwo9f.cloudfront.net/predictions/livestock-mortality-monthly/{YYYY_MM_DD}",
+    "dates": [
+      "2018-10-01", "2018-11-01", "2018-12-01",
+      "2019-01-01", "2019-02-01", "2019-03-01", "2019-04-01", "2019-05-01", "2019-06-01",
+      "2019-07-01", "2019-08-01", "2019-09-01", "2019-10-01", "2019-11-01", "2019-12-01",
+      "2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01", "2020-05-01", "2020-06-01",
+      "2020-07-01", "2020-08-01", "2020-09-01", "2020-10-01", "2020-11-01", "2020-12-01"
+    ],
+    "admin_code": "pcode",
+    "admin_level": 3,
+    "data_field": "mean_predicted_loss_ratio",
+    "opacity": 0.7,
+    "legend_text": "Monthly livestock mortality loss ratio by ward",
+    "legend": [
+      { "value": 0.00, "label": "Normal (<5%)", "color": "#1a9850" },
+      { "value": 0.05, "label": "Concerning (5-10%)", "color": "#fee08b" },
+      { "value": 0.10, "label": "Critical (>10%)", "color": "#d73027" }
+    ],
+    "feature_info_props": {
+      "mean_predicted_loss_ratio": { "type": "number", "dataTitle": "Mean Loss Ratio" },
+      "median_predicted_loss_ratio": { "type": "number", "dataTitle": "Median Loss Ratio" },
+      "confidence": { "type": "number", "dataTitle": "Model Confidence" },
+      "risk_level": { "type": "text", "dataTitle": "Risk Level" },
+      "top_feature_1": { "type": "text", "dataTitle": "#1 Feature" },
+      "top_feature_1_importance": { "type": "number", "dataTitle": "#1 Importance" },
+      "top_feature_2": { "type": "text", "dataTitle": "#2 Feature" },
+      "top_feature_2_importance": { "type": "number", "dataTitle": "#2 Importance" },
+      "top_feature_3": { "type": "text", "dataTitle": "#3 Feature" },
+      "top_feature_3_importance": { "type": "number", "dataTitle": "#3 Importance" }
+    }
+  },
+  "predictions_biannual": {
+    "title": "Biannual (Seasonal) Predictions",
+    "type": "admin_level_data",
+    "path": "https://d31fsorf4vwo9f.cloudfront.net/predictions/livestock-mortality-biannual/{YYYY_MM_DD}",
+    "dates": [
+      "2018-10-01",
+      "2019-04-01", "2019-10-01",
+      "2020-04-01", "2020-10-01"
+    ],
+    "admin_code": "pcode",
+    "admin_level": 3,
+    "data_field": "mean_predicted_loss_ratio",
+    "opacity": 0.7,
+    "legend_text": "Seasonal livestock mortality loss ratio by ward (LRLD=Apr, SRSD=Oct)",
+    "legend": [
+      { "value": 0.00, "label": "Normal (<5%)", "color": "#1a9850" },
+      { "value": 0.05, "label": "Concerning (5-10%)", "color": "#fee08b" },
+      { "value": 0.10, "label": "Critical (>10%)", "color": "#d73027" }
+    ],
+    "feature_info_props": {
+      "mean_predicted_loss_ratio": { "type": "number", "dataTitle": "Mean Loss Ratio" },
+      "median_predicted_loss_ratio": { "type": "number", "dataTitle": "Median Loss Ratio" },
+      "confidence": { "type": "number", "dataTitle": "Model Confidence" },
+      "risk_level": { "type": "text", "dataTitle": "Risk Level" },
+      "top_feature_1": { "type": "text", "dataTitle": "#1 Feature" },
+      "top_feature_1_importance": { "type": "number", "dataTitle": "#1 Importance" },
+      "top_feature_2": { "type": "text", "dataTitle": "#2 Feature" },
+      "top_feature_2_importance": { "type": "number", "dataTitle": "#2 Importance" },
+      "top_feature_3": { "type": "text", "dataTitle": "#3 Feature" },
+      "top_feature_3_importance": { "type": "number", "dataTitle": "#3 Importance" }
+    }
+  },
+  "predictions_quadseasonal": {
+    "title": "Quadseasonal Predictions",
+    "type": "admin_level_data",
+    "path": "https://d31fsorf4vwo9f.cloudfront.net/predictions/livestock-mortality-quadseasonal/{YYYY_MM_DD}",
+    "dates": [
+      "2018-10-01",
+      "2019-01-01",
+      "2019-03-01",
+      "2019-07-01",
+      "2019-10-01",
+      "2020-01-01",
+      "2020-03-01",
+      "2020-07-01",
+      "2020-10-01"
+    ],
+    "admin_code": "pcode",
+    "admin_level": 3,
+    "data_field": "mean_predicted_loss_ratio",
+    "opacity": 0.7,
+    "legend_text": "Quadseasonal livestock mortality loss ratio by ward — 9 seasons from Oct 2018 to Dec 2020 (LRS=Mar-Jun, LRS_dry=Jul-Sep, SRS=Oct-Dec, SRS_dry=Jan-Feb)",
+    "legend": [
+      { "value": 0.00, "label": "Normal (<5%)", "color": "#1a9850" },
+      { "value": 0.05, "label": "Concerning (5-10%)", "color": "#fee08b" },
+      { "value": 0.10, "label": "Critical (>10%)", "color": "#d73027" }
+    ],
+    "feature_info_props": {
+      "mean_predicted_loss_ratio": { "type": "number", "dataTitle": "Mean Loss Ratio" },
+      "median_predicted_loss_ratio": { "type": "number", "dataTitle": "Median Loss Ratio" },
+      "confidence": { "type": "number", "dataTitle": "Model Confidence" },
+      "risk_level": { "type": "text", "dataTitle": "Risk Level" },
+      "top_feature_1": { "type": "text", "dataTitle": "#1 Feature" },
+      "top_feature_1_importance": { "type": "number", "dataTitle": "#1 Importance" },
+      "top_feature_2": { "type": "text", "dataTitle": "#2 Feature" },
+      "top_feature_2_importance": { "type": "number", "dataTitle": "#2 Importance" },
+      "top_feature_3": { "type": "text", "dataTitle": "#3 Feature" },
+      "top_feature_3_importance": { "type": "number", "dataTitle": "#3 Importance" }
+    }
+  }
+}

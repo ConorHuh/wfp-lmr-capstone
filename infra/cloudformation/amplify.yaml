@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR — Amplify Frontend App"
+
+Parameters:
+  Environment:
+    Type: String
+
+Resources:
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub "lmr-prism-${Environment}"
+      Description: "WFP Prism frontend for LMR platform"
+      Platform: WEB
+      # Build is handled by deploy-all.sh (manual zip upload).
+      # This resource creates the app shell and branch.
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            build:
+              commands:
+                - echo "Build handled externally by deploy-all.sh"
+          artifacts:
+            baseDirectory: /
+            files:
+              - "**/*"
+
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: main
+      EnableAutoBuild: false
+      Description: "Main deployment branch"
+
+Outputs:
+  AppId:
+    Value: !GetAtt AmplifyApp.AppId
+  DefaultDomain:
+    Value: !GetAtt AmplifyApp.DefaultDomain

@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LMR Data Platform — Root Stack"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: "dev"
+    AllowedValues: ["dev", "staging", "prod"]
+  ScheduleIntervalDays:
+    Type: Number
+    Default: 10
+  ContainerImageUri:
+    Type: String
+    Description: "Full ECR image URI (e.g. 123456.dkr.ecr.us-east-1.amazonaws.com/lmr-container-dev:latest)"
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "VPC to deploy into (default VPC auto-discovered by deploy script)"
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Subnets for Fargate tasks and ALB"
+  EnableInferencePipeline:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "Deploy Step Functions inference pipeline (reads inference.enabled from datasets.yaml)"
+  EnableServeSchedule:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "Scale serve task to zero outside working hours (reads schedule.enabled from datasets.yaml)"
+  ScheduleStartHour:
+    Type: Number
+    Default: 8
+  ScheduleStopHour:
+    Type: Number
+    Default: 18
+  ScheduleTimezone:
+    Type: String
+    Default: "America/Los_Angeles"
+
+Conditions:
+  HasInferencePipeline: !Equals [!Ref EnableInferencePipeline, "true"]
+  HasServeSchedule: !Equals [!Ref EnableServeSchedule, "true"]
+
+Resources:
+  # ── Always-on stacks ─────────────────────────────────────────────────────
+  # Note: ECR is managed by deploy-all.sh (Phase 1: bootstrap), not CloudFormation.
+  # The image must exist in ECR before this stack creates ECS services.
+
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        DataBucketArn: !GetAtt S3Stack.Outputs.DataBucketArn
+
+  FargateIngestStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./fargate-ingest.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ContainerImageUri: !Ref ContainerImageUri
+        TaskRoleArn: !GetAtt IAMStack.Outputs.TaskRoleArn
+        ExecutionRoleArn: !GetAtt IAMStack.Outputs.ExecutionRoleArn
+        SubnetIds: !Join [",", !Ref SubnetIds]
+        VpcId: !Ref VpcId
+
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./eventbridge.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ScheduleIntervalDays: !Ref ScheduleIntervalDays
+        ClusterArn: !GetAtt FargateIngestStack.Outputs.ClusterArn
+        TaskDefinitionArn: !GetAtt FargateIngestStack.Outputs.TaskDefinitionArn
+        SubnetIds: !Join [",", !Ref SubnetIds]
+        EventBridgeRoleArn: !GetAtt IAMStack.Outputs.EventBridgeRoleArn
+
+  FargateServeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./fargate-serve.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ContainerImageUri: !Ref ContainerImageUri
+        TaskRoleArn: !GetAtt IAMStack.Outputs.TaskRoleArn
+        ExecutionRoleArn: !GetAtt IAMStack.Outputs.ExecutionRoleArn
+        SubnetIds: !Join [",", !Ref SubnetIds]
+        VpcId: !Ref VpcId
+        ClusterArn: !GetAtt FargateIngestStack.Outputs.ClusterArn
+
+  CloudFrontStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: FargateServeStack
+    Properties:
+      TemplateURL: ./cloudfront.yaml
+      Parameters:
+        Environment: !Ref Environment
+        AlbDnsName: !GetAtt FargateServeStack.Outputs.ALBDnsName
+
+  AmplifyStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./amplify.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  # ── Conditional: Serve schedule (scale to zero outside hours) ─────────────
+
+  ServeScheduleStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasServeSchedule
+    DependsOn: FargateServeStack
+    Properties:
+      TemplateURL: ./serve-schedule.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ClusterName: !Select [1, !Split ["/", !GetAtt FargateIngestStack.Outputs.ClusterArn]]
+        ServiceName: !Sub "lmr-serve-${Environment}"
+        StartHour: !Ref ScheduleStartHour
+        StopHour: !Ref ScheduleStopHour
+        Timezone: !Ref ScheduleTimezone
+
+  # ── Conditional: Inference pipeline (Step Functions) ──────────────────────
+
+  FargateInferStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasInferencePipeline
+    Properties:
+      TemplateURL: ./fargate-infer.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ContainerImageUri: !Ref ContainerImageUri
+        TaskRoleArn: !GetAtt IAMStack.Outputs.TaskRoleArn
+        ExecutionRoleArn: !GetAtt IAMStack.Outputs.ExecutionRoleArn
+        ClusterArn: !GetAtt FargateIngestStack.Outputs.ClusterArn
+        VpcId: !Ref VpcId
+
+  StepFunctionsStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasInferencePipeline
+    Properties:
+      TemplateURL: ./step-functions.yaml
+      Parameters:
+        Environment: !Ref Environment
+        DataBucketName: !GetAtt S3Stack.Outputs.DataBucketName
+        ClusterArn: !GetAtt FargateIngestStack.Outputs.ClusterArn
+        FeatureExtractTaskDefArn: !GetAtt FargateInferStack.Outputs.FeatureExtractTaskDefArn
+        InferTaskDefArn: !GetAtt FargateInferStack.Outputs.InferTaskDefArn
+        SubnetIds: !Join [",", !Ref SubnetIds]
+        SecurityGroupId: !GetAtt FargateInferStack.Outputs.SecurityGroupId
+        SfnExecutionRoleArn: !GetAtt IAMStack.Outputs.SfnExecutionRoleArn
+        LambdaTriggerRoleArn: !GetAtt IAMStack.Outputs.LambdaSfnTriggerRoleArn
+
+Outputs:
+  DataBucketName:
+    Value: !GetAtt S3Stack.Outputs.DataBucketName
+  ClusterArn:
+    Value: !GetAtt FargateIngestStack.Outputs.ClusterArn
+  ALBDnsName:
+    Value: !GetAtt FargateServeStack.Outputs.ALBDnsName
+  CloudFrontDistributionId:
+    Value: !GetAtt CloudFrontStack.Outputs.DistributionId
+  CloudFrontDomain:
+    Value: !GetAtt CloudFrontStack.Outputs.DistributionDomain
+  AmplifyAppId:
+    Value: !GetAtt AmplifyStack.Outputs.AppId
+  AmplifyDomain:
+    Value: !GetAtt AmplifyStack.Outputs.DefaultDomain
