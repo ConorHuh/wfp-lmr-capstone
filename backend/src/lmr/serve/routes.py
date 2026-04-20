@@ -61,6 +61,7 @@ _SHAPEID_TO_PCODE = {
     "90231094B52652220782701": "KE1384",   # Waso
     "90231094B33506971670808": "KE1207",   # Sekerr
 }
+_RISK_LEVEL_ENCODING = {"Normal": 0, "Concerning": 1, "Critical": 2}
 
 router = APIRouter()
 
@@ -245,6 +246,7 @@ def _flatten_prediction_properties(props: dict, feature_labels: dict) -> dict:
         "median_predicted_loss_ratio": round(median_lr, 4) if median_lr is not None else None,
         "confidence": round(confidence, 2) if confidence is not None else None,
         "risk_level": props.get("risk_level"),
+        "risk_level_encoded": _RISK_LEVEL_ENCODING.get(props.get("risk_level")),
         "n_observations": props.get("n_observations"),
     }
     # Flatten top_features with readable labels
