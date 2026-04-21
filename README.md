@@ -159,7 +159,7 @@ frontend/                   # Prism frontend configuration (injected at deploy t
   patches/                  #   Patches applied to Prism source (e.g. date format support)
 
 infra/                      # AWS infrastructure
-  cloudformation/           #   11 nested CloudFormation templates
+  cloudformation/           #   12 nested CloudFormation templates
     main.yaml               #     Root stack orchestrator
     fargate-ingest.yaml     #     Ingest task (1 vCPU / 4 GB)
     fargate-serve.yaml      #     Serve task + ALB (2 vCPU / 8 GB)
