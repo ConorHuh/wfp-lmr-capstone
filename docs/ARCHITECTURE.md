@@ -240,7 +240,7 @@ FastAPI application with TiTiler mounted at `/cog`. Runs on Fargate behind ALB +
 | `GET /tile_url?collection=&date=&asset=` | TiTiler tile URL template for Prism |
 | `GET /latest?model=livestock-mortality` | Latest prediction COG presigned URL |
 | `GET /predictions/livestock-mortality/dates` | Available prediction dates |
-| `GET /predictions/livestock-mortality/{date}` | Ward prediction data for Prism tooltips |
+| `GET /predictions/{model_type}/{period}` | Ward prediction data for Prism tooltips |
 | `GET /cog/tiles/WebMercatorQuad/{z}/{x}/{y}` | TiTiler raster tile serving |
 
 ### Prediction Ward Data
