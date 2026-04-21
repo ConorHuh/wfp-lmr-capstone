@@ -178,7 +178,7 @@
     "admin_level": 3,
     "data_field": "risk_level_encoded",
     "opacity": 0.7,
-    "legend_text": "Monthly livestock mortality loss ratio by ward",
+    "legend_text": "Monthly livestock mortality loss ratio by ward, relative to historical average",
     "legend": [
       { "value": 0, "label": "Normal", "color": "#1a9850" },
       { "value": 1, "label": "Concerning", "color": "#fee08b" },
@@ -210,7 +210,7 @@
     "admin_level": 3,
     "data_field": "risk_level_encoded",
     "opacity": 0.7,
-    "legend_text": "Seasonal livestock mortality loss ratio by ward (LRLD=Apr, SRSD=Oct)",
+    "legend_text": "Biannual livestock mortality loss ratio by ward (LRLD=Apr, SRSD=Oct), relative to historical average",
     "legend": [
       { "value": 0, "label": "Normal", "color": "#1a9850" },
       { "value": 1, "label": "Concerning", "color": "#fee08b" },
@@ -248,7 +248,7 @@
     "admin_level": 3,
     "data_field": "risk_level_encoded",
     "opacity": 0.7,
-    "legend_text": "Quadseasonal livestock mortality loss ratio by ward — 9 seasons from Oct 2018 to Dec 2020 (LRS=Mar-Jun, LRS_dry=Jul-Sep, SRS=Oct-Dec, SRS_dry=Jan-Feb)",
+    "legend_text": "Quadseasonal livestock mortality loss ratio by ward (LRS=Mar-Jun, LRS_dry=Jul-Sep, SRS=Oct-Dec, SRS_dry=Jan-Feb), relative to historical average",
     "legend": [
       { "value": 0, "label": "Normal", "color": "#1a9850" },
       { "value": 1, "label": "Concerning", "color": "#fee08b" },
