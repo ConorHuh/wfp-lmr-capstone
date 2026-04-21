@@ -148,7 +148,7 @@ backend/                    # Single Docker container (Python 3.11 + GDAL)
   config/
     datasets.yaml           #   All platform config (datasets, inference toggle, S3 paths)
     boundaries/             #   Kenya ward boundaries GeoJSON (1,425 wards)
-  tests/                    #   54 pytest tests
+  tests/                    #   pytest tests
   Dockerfile                #   Multi-stage build with uv
 
 frontend/                   # Prism frontend configuration (injected at deploy time)
