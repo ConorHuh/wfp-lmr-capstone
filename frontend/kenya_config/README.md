@@ -1,126 +1,50 @@
-# PRISM Kenya/Marsabit — Local Development Setup
+# Kenya Configuration
 
-## Architecture
+This directory contains the Kenya-specific configuration files that get injected into WFP's [Prism](https://github.com/WFP-VAM/prism-app) frontend during deployment.
+
+## Files
 
 ```
-Windows machine
-├── Docker Desktop
-│   └── TiTiler container (serves COGs as map tiles on port 8000)
-├── prism-app/
-│   └── frontend/ (React app on port 3000)
-└── C:\Users\abhas\prism-project\cogs\
-    ├── ndvi/   (217 COGs, ~500m MODIS monthly 2008-2026)
-    ├── evi/
-    ├── fpar/
-    └── lai/
+kenya_config/
+├── prism.json                  # Country settings, map center, layer categories
+├── layers.json                 # Layer definitions (types, URLs, legends, dates)
+└── admin_boundaries.geojson    # Ward boundaries with pcode, first_prov, first_dist
+
+patches/
+└── 0001-support-hyphenated-date-format-in-static-raster-urls.patch
 ```
 
-## Prerequisites
+Deployment steps are documented in [`frontend/README.md`](../README.md).
 
-- Docker Desktop for Windows
-- Node.js v18+
-- Yarn package manager
-- Git
+## Layer types
 
-## Step 1: NetCDF → COG Conversion (Google Colab)
+**`static_raster`** — COG tiles served via TiTiler. URL contains `{YYYY-MM-DD}` date template. Used for satellite data and prediction rasters.
 
-```python
-import xarray as xr
-import rioxarray
-from pathlib import Path
+**`admin_level_data`** — Fetches JSON from the serve API, joins to boundary polygons by `pcode`, colors wards by a numeric field, shows tooltip on click. URL contains `{YYYY_MM_DD}` date template. Used for ward prediction details.
 
-ds = xr.open_dataset('your_file.nc')
-ds = ds.rio.set_spatial_dims(x_dim='lon', y_dim='lat')
-ds = ds.rio.write_crs("EPSG:4326")
+## Updating layer dates
 
-output_dir = Path('cogs')
-for var in ['ndvi', 'evi', 'fpar', 'lai']:
-    (output_dir / var).mkdir(parents=True, exist_ok=True)
-    for t in range(len(ds.time)):
-        date_str = str(ds.time[t].values)[:10]
-        da = ds[var].isel(time=t)
-        da.rio.to_raster(
-            output_dir / var / f"{var}_{date_str}.tif",
-            driver="COG",
-            compress="deflate"
-        )
-        print(f"{var} {date_str} done")
-```
+After new data is ingested or predictions are generated, update the `dates` arrays in `layers.json` to include the new dates. The dates must match the folder names in S3 (e.g., `2026-01-17` for rasters, `2026_04_01` for predictions).
 
-Then zip and download:
-```python
-!zip -r cogs.zip cogs/
-```
+## Local development
 
-Unzip to: `C:\Users\abhas\prism-project\cogs\`
+To test Prism locally with Kenya config:
 
-## Step 2: Start TiTiler
+```bash
+# Clone prism-app
+git clone https://github.com/WFP-VAM/prism-app.git /tmp/prism-test
+cd /tmp/prism-test
+git checkout 6f22f3b6063ad813f3277fa312b23bb0c9bbbab0
 
-```powershell
-docker run -d --name titiler -p 8000:80 -v C:\Users\abhas\prism-project\cogs:/data ghcr.io/developmentseed/titiler:latest
-```
+# Inject config (same steps as deploy-all.sh)
+mkdir -p frontend/src/config/kenya
+cp /path/to/this/repo/frontend/kenya_config/layers.json frontend/src/config/kenya/
+cp /path/to/this/repo/frontend/kenya_config/prism.json frontend/src/config/kenya/
+cp /path/to/this/repo/frontend/kenya_config/admin_boundaries.geojson \
+   frontend/public/data/kenya/ken_bnd_adm3_WFP.json
 
-**Note:** TiTiler listens on port 80 internally, so map 8000:80 (not 8000:8000).
-
-Test: http://localhost:8000/cog/info?url=file:///data/ndvi/ndvi_2020-01-01.tif
-
-Preview: http://localhost:8000/cog/preview?url=file:///data/ndvi/ndvi_2020-01-01.tif&rescale=0,1&colormap_name=ylgn
-
-## Step 3: Clone and Configure PRISM
-
-```powershell
-git clone https://github.com/WFP-VAM/prism-app.git
-cd prism-app/frontend
-```
-
-Copy the config files from this directory into:
-```
-frontend/src/config/kenya/
-├── prism.json
-├── layers.json
-├── index.ts
-└── admin_boundaries.json  (Admin level 3 boundaries GeoJSON)
-```
-
-## Step 4: Get Admin Boundaries
-
-Download Marsabit county boundary from HDX or GADM. The GeoJSON needs admin code properties that PRISM expects.
-
-## Step 5: Run PRISM
-
-```powershell
-cd frontend
-yarn clean
+# Build and run
+cd common && yarn install && yarn build && cd ../frontend
 yarn install
-yarn setup:common
-$env:REACT_APP_COUNTRY="kenya"; yarn start
-```
-
-Opens at http://localhost:3000
-
-## Data Specs
-
-- **Source:** 1.3GB NetCDF, MODIS vegetation indices
-- **Variables:** NDVI, EVI, FPAR, LAI
-- **Resolution:** ~500m (0.0045° grid, 709×679 pixels)
-- **Temporal:** Monthly, Jan 2008 – Jan 2026 (217 timesteps)
-- **CRS:** EPSG:4326 (WGS84)
-- **Extent:** Marsabit County (lat 1.3°N–4.5°N, lon 36°E–39°E)
-- **COG size:** ~2MB per file, ~900MB total for 868 files
-
-## Layer Config
-
-All 4 layers use `static_raster` type pointing at TiTiler:
-```
-http://localhost:8000/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?url=file:///data/{var}/{var}_{YYYY}-{MM}-{DD}.tif&rescale=...&colormap_name=...
-```
-
-PRISM's date picker substitutes `{YYYY}-{MM}-{DD}` → `{YYYY_MM_DD}` format.
-
-## TiTiler CORS (if needed)
-
-If you get CORS errors, restart TiTiler with:
-```powershell
-docker rm -f titiler
-docker run -d --name titiler -p 8000:80 -e CORS_ORIGINS="*" -v C:\Users\abhas\prism-project\cogs:/data ghcr.io/developmentseed/titiler:latest
+REACT_APP_COUNTRY=kenya yarn start
 ```
