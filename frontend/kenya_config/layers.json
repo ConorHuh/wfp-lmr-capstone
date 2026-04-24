@@ -180,9 +180,9 @@
     "opacity": 0.7,
     "legend_text": "Monthly livestock mortality loss ratio by ward, relative to historical average",
     "legend": [
-      { "value": 0, "label": "Normal", "color": "#1a9850" },
-      { "value": 1, "label": "Concerning", "color": "#fee08b" },
-      { "value": 2, "label": "Critical", "color": "#d73027" }
+      { "value": 0, "label": "Normal (<5%)", "color": "#1a9850" },
+      { "value": 1, "label": "Concerning (5-10%)", "color": "#fee08b" },
+      { "value": 2, "label": "Critical (>10%)", "color": "#d73027" }
     ],
     "feature_info_props": {
       "mean_predicted_loss_ratio": { "type": "number", "dataTitle": "Mean Loss Ratio" },
@@ -212,9 +212,9 @@
     "opacity": 0.7,
     "legend_text": "Biannual livestock mortality loss ratio by ward (LRLD=Apr, SRSD=Oct), relative to historical average",
     "legend": [
-      { "value": 0, "label": "Normal", "color": "#1a9850" },
-      { "value": 1, "label": "Concerning", "color": "#fee08b" },
-      { "value": 2, "label": "Critical", "color": "#d73027" }
+      { "value": 0, "label": "Normal (<5%)", "color": "#1a9850" },
+      { "value": 1, "label": "Concerning (5-10%)", "color": "#fee08b" },
+      { "value": 2, "label": "Critical (>10%)", "color": "#d73027" }
     ],
     "feature_info_props": {
       "mean_predicted_loss_ratio": { "type": "number", "dataTitle": "Mean Loss Ratio" },
@@ -250,9 +250,9 @@
     "opacity": 0.7,
     "legend_text": "Quadseasonal livestock mortality loss ratio by ward (LRS=Mar-Jun, LRS_dry=Jul-Sep, SRS=Oct-Dec, SRS_dry=Jan-Feb), relative to historical average",
     "legend": [
-      { "value": 0, "label": "Normal", "color": "#1a9850" },
-      { "value": 1, "label": "Concerning", "color": "#fee08b" },
-      { "value": 2, "label": "Critical", "color": "#d73027" }
+      { "value": 0, "label": "Normal (<5%)", "color": "#1a9850" },
+      { "value": 1, "label": "Concerning (5-10%)", "color": "#fee08b" },
+      { "value": 2, "label": "Critical (>10%)", "color": "#d73027" }
     ],
     "feature_info_props": {
       "mean_predicted_loss_ratio": { "type": "number", "dataTitle": "Mean Loss Ratio" },
