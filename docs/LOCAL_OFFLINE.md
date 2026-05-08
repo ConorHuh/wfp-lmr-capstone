@@ -9,8 +9,7 @@ This branch is **deliberately divergent from `main`**. It points buckets at
 `lmr-data-cogs-local`, prunes datasets to the model's actual feature
 dependencies, downsamples a couple of static layers to fit in 8 GB RAM, and
 fixes a handful of latent bugs that surface only when running inference
-end-to-end. **Don't merge this branch into `main`** — see "How this differs
-from main" below.
+end-to-end. See "How this differs from main" below. DO NOT MERGE
 
 ---
 
