@@ -17,10 +17,20 @@ end-to-end. See "How this differs from main" below. DO NOT MERGE
 
 ## TL;DR — getting this running
 
-Prereqs: Docker Desktop with WSL integration on, ~80 GB free, [free NASA
-Earthdata account][nasa], [free Copernicus CDS account][cds] with the
-[ERA5-Land licence accepted][era5-licence], and a model bundle delivered to
-you out-of-band (the `.joblib` files; not in this repo).
+**Prereqs:**
+- Docker Desktop (macOS, Linux, or Windows with WSL2 integration enabled).
+  Apple Silicon and Intel Macs both work — every image we use has multi-arch builds.
+- **Bump Docker Desktop's memory allocation to at least 8 GB** before running
+  the WorldCover ingest. *macOS:* Docker Desktop → Settings → Resources →
+  Memory. *Windows/WSL2:* `~/.wslconfig` → `[wsl2]\nmemory=8GB`. The default
+  on a fresh Docker Desktop install is 4 GB, which OOM-kills the static-layer
+  merge step.
+- ~80 GB free disk for COGs + parquets + Docker images at full 24-month lookback.
+  Less if you trim lookback to 30 days for a smoke test.
+- [Free NASA Earthdata account][nasa] (sign up at the link).
+- [Free Copernicus CDS account][cds] with the [ERA5-Land licence accepted][era5-licence].
+- The **model bundle** delivered to you out-of-band (`.joblib` files; not in
+  this repo). See "Bundle layout" below.
 
 ```bash
 # 0. Branch + secrets
@@ -32,7 +42,7 @@ CDSAPI_URL=https://cds.climate.copernicus.eu/api
 CDSAPI_KEY=your_personal_access_token
 EOF
 
-# 1. Drop the model bundle at ~/lmr-bundle/ (or anywhere — pass BUNDLE_DIR=)
+# 1. Drop the model bundle at ~/lmr-bundle/ (or any path — pass BUNDLE_DIR=)
 #    Layout:
 #      ~/lmr-bundle/inference_bundle/{biannual,quadseasonal,monthly}/<artifacts>
 #      ~/lmr-bundle/geoBoundaries-KEN-ADM3.geojson
@@ -40,7 +50,7 @@ EOF
 # 2. Bring up MinIO and upload the bundle
 docker compose -f docker-compose.local.yml up -d minio
 ./infra/local-bootstrap.sh                 # uses ~/lmr-bundle by default
-# or:  BUNDLE_DIR=/mnt/c/Users/you/lmr-bundle ./infra/local-bootstrap.sh
+# or:  BUNDLE_DIR=/path/to/your/bundle ./infra/local-bootstrap.sh
 
 # 3. Run the data pipeline (ingest pulls from public internet, ~30–60 min
 #    for 30 days of MODIS; full 24 months is several hours)
@@ -54,7 +64,10 @@ docker compose -f docker-compose.local.yml up -d minio
 # 4. Bring up serve + frontend
 docker compose -f docker-compose.local.yml up -d lmr-serve frontend
 
-# 5. Open http://localhost:3000 (PRISM) and pick Marsabit County
+# 5. Open http://localhost:3000 in your browser:
+#    macOS:    open http://localhost:3000
+#    Linux:    xdg-open http://localhost:3000
+#    Windows:  start http://localhost:3000
 ```
 
 When everything is running, you should see Marsabit ward boundaries on the
@@ -84,9 +97,15 @@ Volumes:
   `build_parquets.py` without rebuilding the image
 
 The bundle (16 MB) lives wherever you put it — bind-mounted into the
-bootstrap container at run time. `/mnt/c/...` is fine for the bundle since
-it's only uploaded once. Keep the larger MinIO data directory
-(`~/lmr-local-data`) on WSL ext4 for IO performance.
+bootstrap container at run time. Path doesn't matter; it's uploaded once
+on bootstrap.
+
+> **WSL2 users only:** keep `~/lmr-local-data` on the WSL ext4 filesystem
+> (i.e. WSL home, not `/mnt/c/...`). Cross-filesystem IO between Windows
+> and Linux is dramatically slower under WSL2. The bundle itself is small
+> enough that `/mnt/c/...` is fine, but the MinIO data directory (tens
+> of GB) really wants to be on ext4. macOS users have no equivalent
+> concern — APFS is uniform across the home directory.
 
 ---
 
@@ -278,7 +297,17 @@ docker compose -f docker-compose.local.yml --profile cli run --rm lmr-cli ...
 The pipeline script handles this internally; the gotcha is for ad-hoc runs.
 
 **Ingest dies silently (container exits, no error in logs) during
-WorldCover** — it OOM'd while merging tiles. Confirm
-`worldcover.processing.resolution_m` is `100` in `datasets.yaml`, not
-`10`. If you need 10 m, give Docker more memory or use a workstation with
-≥ 32 GB.
+WorldCover** — it OOM'd while merging tiles. Two things to check:
+1. `worldcover.processing.resolution_m` is `100` in `datasets.yaml`, not `10`.
+2. Docker Desktop is configured with ≥ 8 GB memory:
+   - **macOS:** Docker Desktop → Settings → Resources → Memory → 8 GB+ → "Apply & restart"
+   - **WSL2:** `~/.wslconfig` with `[wsl2]\nmemory=8GB` then `wsl --shutdown` and reopen
+
+If you need true 10 m WorldCover and have a workstation with ≥ 32 GB RAM,
+flip the resolution back and bump Docker memory to 24+ GB.
+
+**(WSL2 only) `docker compose run` is unbearably slow on `/mnt/c/...`
+paths** — bind-mounted Windows paths cross the WSL filesystem boundary
+on every IO. Move volumes (`~/lmr-local-data`, anything under repeated IO)
+into the WSL home directory (`~/...`). The bundle path can stay on
+`/mnt/c/...` since it's only read once during bootstrap.
