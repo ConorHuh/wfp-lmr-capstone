@@ -135,6 +135,11 @@ def run_inference_preprocess(
             )
         logger.info("Imputed %d NaN(s) using training medians", nan_counts_before)
 
+        # 6. Scale features for Ridge.
+        # Restored from pre-d538304 — that commit accidentally removed this step
+        # while tightening NaN handling, leaving X_ridge undefined at line 146.
+        X_scaled_arr = scaler.transform(X.values)
+        X_ridge = pd.DataFrame(X_scaled_arr, columns=feature_names, index=X.index)
 
         # 7. Write outputs to S3
         out_prefix = output_s3_base_uri.rstrip("/")
