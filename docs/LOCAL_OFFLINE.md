@@ -113,8 +113,7 @@ picture.
 `soil_composite_anom`, `tci`, `vci`) start being statistically meaningful.
 Any shorter and the model is mostly fed `train_medians.json` imputations.
 Any longer and the first ingest stops fitting comfortably in a laptop's
-disk + runtime budget. The customer-handoff config can keep production at
-1100/36 if their hardware allows.
+disk + runtime budget. 
 
 ### 3. Disabled datasets the 3 model schemes don't use
 
@@ -126,10 +125,7 @@ features that any model consumes:
   `chirps-rainfall`, `era5-soil-moisture` — temporal
 - `jrc-water` (occurrence asset only), `worldcover` — static
 
-The other 7 datasets that ship enabled in `main` (`modis-evi`,
-`modis-lai`, `modis-fpar`, `modis-gpp`, `modis-et-8day`, `modis-pet-8day`,
-`modis-lst-night`) are flipped off because they're pure waste — ingest
-fetches them, COGs land in S3, and nothing reads them.
+Collections not included in model data are excluded for efficiency.
 `feature_extract.py:DEFAULT_SKIP_COLLECTIONS` was extended to match so
 feature extraction doesn't crash trying to open parquets for the disabled
 ones.
@@ -144,23 +140,16 @@ class-fraction features (`wc_water`, `wc_builtup`, `wc_cropland`). A
 production deploy with bigger Fargate tasks could keep 10 m if desired,
 but for a single laptop this is the sane default.
 
-### 5. New: `infra/build_parquets.py` — fills a gap in `main`
+### 5. New: `infra/build_parquets.py` — for local deployment
 
-Production reads NDVI/LST/SR/JRC/WorldCover parquets from a SageMaker
-training bucket. The lmr-container's `parquet_bridge.py` only auto-builds
-parquets for datasets that have a `parquet_bridge:` block — which today
-is just `chirps-rainfall` and `era5-soil-moisture`. So a customer
-deploying from scratch with no SageMaker bucket has no path to produce
-parquets for the model's other 6 inputs.
+Production reads NDVI/LST/SR/JRC/WorldCover parquets from a s3 bucket.
+The lmr-container's `parquet_bridge.py` only auto-builds
+parquets for datasets that have a `parquet_bridge:` block. 
 
 `infra/build_parquets.py` closes that gap by reading raw COGs from MinIO
 and producing wide-format parquets in the schema `ward_features.py`
 expects. It also applies **MODIS scale factors** (`÷10000` for NDVI/SR,
-`×0.02` for LST) which the training pipeline does upstream but the
-lmr-container ingest never did. **Without this scaling, Ridge model
-predictions land in the −800 range instead of the 0–0.2 range** — a real
-gotcha that took a few rounds of debugging to track down. See "Bugs
-discovered" below.
+`×0.02` for LST).
 
 For static layers (JRC, WorldCover), the script also caps output at ~5 M
 pixels via on-read decimation — same OOM concern as WorldCover above.
@@ -192,8 +181,7 @@ Thin tooling to make the laptop stack reproducible:
 - Raster `base_url` placeholders changed `{YYYY-MM-DD}` →
   `{YYYY_MM_DD}` so PRISM substitutes underscores matching our COG
   folder layout
-- `dates: [...]` arrays refreshed from actual MinIO contents (no more
-  stale 2018-2020 entries)
+- `dates: [...]` arrays refreshed from actual MinIO contents
 - Risk legend labels: `Normal` → `Normal (<5%)`,
   `Concerning` → `Concerning (5-10%)`, `Critical` → `Critical (>10%)`
   (matches `DEFAULT_RISK_THRESHOLDS` in postprocess.py)
@@ -210,13 +198,9 @@ object like `{"reports":[]}`.
 
 ### 8. Backend bug fixes
 
-These are real bugs that affect production too. Two of them are filed as
-PR #3 against `main`. The third is mostly local.
-
+Known local bug
 | Bug | Fix |
-|---|---|
-| `preprocess.py` `X_ridge` undefined (commit `d538304` accidentally deleted the Ridge scaling step) → every inference run crashes with `NameError` | Restored 2 lines. **Filed as [PR #3](https://github.com/ConorHuh/wfp-lmr-capstone/pull/3) against main.** |
-| `routes.py` prediction endpoint had three issues: (a) only accepted underscore dates, PRISM sends hyphens; (b) looked in `predictions/livestock-mortality-{scheme}/{folder}/` while postprocess writes to `predictions/livestock-mortality/{date}/`; (c) hardcoded `_QUADSEASONAL` table only covered 2018–2020 | Simplified the route — drop scheme suffix, drop folder remapping, accept either separator. Same shape as what postprocess writes. |
+
 | `ward_features.py` `compute_dem_roughness` crashes when `dem.parquet` doesn't exist (we don't ingest DEM since no model uses it) | Catches the `NoSuchKey`, returns NaN for `dem_std` / `dem_range` so downstream imputation handles it. |
 
 ---
@@ -266,10 +250,6 @@ http://localhost:8000/predictions/livestock-mortality-monthly/{YYYY_MM_DD}"**
 array is empty, or none of its dates falls at-or-before "today". Check
 the dates arrays in `layers.json`.
 
-**Tile request returns transparent PNG (~334 bytes) for every zoom
-level** — the tile is hitting an empty/edge area of the COG. Pan to a
-populated area (Marsabit center: lat 2.5, lon 37.5) and zoom in.
-
 **TiTiler logs `RasterioIOError: HTTP response code: 404` for s3:// URLs**
 — GDAL's `/vsis3/` driver isn't honoring the MinIO endpoint override.
 Check the lmr-serve container has all four env vars:
@@ -281,10 +261,6 @@ isn't applying scale factors. Confirm the `TEMPORAL_TARGETS` and
 `STATIC_TARGETS` tuples include the per-product `scale_factor` and
 `nodata` values; rebuild parquets; clear the feature-extract cache
 (see above); re-run features + infer.
-
-**Inference crashes with `NameError: name 'X_ridge' is not defined`** —
-this branch's `preprocess.py` already has the fix; if you're seeing it,
-either you've reverted that file or you're on a different branch.
 
 **Feature extraction crashes on missing parquet** — a dataset is
 missing from `DEFAULT_SKIP_COLLECTIONS` in `feature_extract.py:15`. Add
@@ -304,25 +280,3 @@ WorldCover** — it OOM'd while merging tiles. Confirm
 `worldcover.processing.resolution_m` is `100` in `datasets.yaml`, not
 `10`. If you need 10 m, give Docker more memory or use a workstation with
 ≥ 32 GB.
-
----
-
-## Going from local to AWS
-
-This branch is **not deployable** via `infra/deploy-all.sh` — bucket
-naming, CORS, and several backend assumptions diverge.
-
-For a customer-handoff path, cherry-pick selectively:
-
-- ✅ Take: the dataset prune list, the trimmed `modis-sr` asset list,
-  the WorldCover-100m default, `feature_extract.py` skip-list updates,
-  the `routes.py` simplification, and the `ward_features.py` DEM guard
-- ✅ Take: `infra/build_parquets.py` (with scale factors!) — production
-  needs this if customers don't have a SageMaker training bucket
-- ❌ Leave behind: bucket name swaps, lookback bumps, CORS restrictions,
-  `docker-compose.local.yml`, `Dockerfile.frontend`, the local helper
-  scripts
-
-PR #3 is the one fix that should land in `main` immediately —
-`preprocess.py X_ridge`. Without it production inference also crashes,
-silently, on every Step Function run.
