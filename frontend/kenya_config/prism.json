@@ -19,18 +19,12 @@
   "categories": {
     "hazards": {
       "vegetation_indices": [
-        "modis_ndvi",
-        "modis_evi",
-        "modis_lai",
-        "modis_fpar",
-        "modis_gpp"
+        "modis_ndvi"
       ],
       "climate": [
-        "modis_lst_day",
-        "modis_lst_night"
+        "modis_lst_day"
       ],
       "surface_reflectance": [
-        "modis_sr_red",
         "modis_sr_nir"
       ],
       "predictions": [

@@ -11,8 +11,25 @@ from lmr.common.logging import setup_logging
 from lmr.config import AppConfig
 
 
-# Large collections not used by the 29 model features — skip to avoid OOM.
-DEFAULT_SKIP_COLLECTIONS = {"s1_vv", "s1_vh", "s2_red", "s2_nir", "s2_swir1"}
+# Skipped because either (a) ingest doesn't write a parquet for them in the
+# local-offline branch (datasets disabled in datasets.yaml) or (b) they're large
+# collections never used by any of the 3 production model schemes
+# (biannual / quadseasonal / monthly).
+DEFAULT_SKIP_COLLECTIONS = {
+    # Sentinel — never enabled in this branch
+    "s1_vv", "s1_vh", "s2_red", "s2_nir", "s2_swir1",
+    # MODIS datasets disabled in datasets.yaml (unused by the 3 model schemes)
+    "evi_250m", "lai", "fpar", "gpp", "et", "pet", "lst_night",
+    # MODIS fire — disabled, no model uses months_since_fire in the current bundles
+    "fire_mask", "fire_frp_max", "fire_frp_sum",
+    # JRC: only occurrence is used; seasonality dataset asset is not pulled
+    "jrc_seasonality",
+    # DEM: dem_std isn't in any of the 3 production feature lists
+    "dem",
+    # MODIS SR: trimmed to NIR (B02) + SWIR1 (B06) only.
+    # B01 (red) and B07 (SWIR2) parquets won't exist.
+    "sr_red", "sr_swir2",
+}
 
 # Marsabit County bounding box (default spatial filter).
 MARSABIT_BBOX = (36.0, 1.2, 39.0, 4.5)

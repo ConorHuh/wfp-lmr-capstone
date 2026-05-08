@@ -167,63 +167,37 @@ async def tile_url(request: Request, collection: str, date: str, asset: str = "n
     }
 
 
-# ISO date (YYYY_MM_DD from PRISM) → S3 folder name mappings
-_MONTH_NAMES = {
-    "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr",
-    "05": "May", "06": "Jun", "07": "Jul", "08": "Aug",
-    "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec",
-}
+# ── Date normalisation for the predictions route ──────────────────────────
+#
+# Postprocess (backend/src/lmr/infer/postprocess.py:189) writes every
+# scheme's predictions under a single canonical S3 prefix:
+#
+#   predictions/livestock-mortality/{YYYY_MM_DD}/ward_predictions.geojson
+#
+# where YYYY_MM_DD is derived from the season's end date for biannual /
+# quadseasonal, or directly from year+month for monthly. The scheme is
+# implicit in WHICH dates exist for that scheme — the frontend already
+# tracks that via per-scheme `dates: [...]` arrays in layers.json.
+#
+# So the route doesn't need to derive a scheme-specific folder name from
+# the date — it just needs to normalise the incoming date to YYYY_MM_DD
+# and look it up directly. PRISM hands us dates with hyphen separators
+# (e.g. "2026-04-01"); accept either separator for robustness.
 
-# Biannual season mapping: LRLD starts ~April, SRSD starts ~October
-_BIANNUAL_SEASON = {"04": "LRLD", "10": "SRSD"}
+def _normalize_date_key(iso_date: str) -> str:
+    """Convert '2026-04-01' or '2026_04_01' → '2026_04_01' (postprocess format).
 
-
-def _iso_to_monthly_folder(iso_date: str) -> str:
-    """Convert '2019_01_01' → '2019Jan'."""
-    parts = iso_date.split("_")
-    return f"{parts[0]}{_MONTH_NAMES[parts[1]]}"
-
-
-def _iso_to_biannual_folder(iso_date: str) -> str:
-    """Convert '2019_04_01' → '2019LRLD', '2019_10_01' → '2019SRSD'."""
-    parts = iso_date.split("_")
-    season = _BIANNUAL_SEASON.get(parts[1])
-    if season is None:
+    Raises HTTPException(400) on malformed input rather than crashing the
+    route handler with an IndexError further down.
+    """
+    parts = iso_date.replace("-", "_").split("_")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid biannual date {iso_date}: month must be 04 (LRLD) or 10 (SRSD)",
+            detail=f"Invalid date '{iso_date}': expected YYYY-MM-DD or YYYY_MM_DD",
         )
-    return f"{parts[0]}{season}"
-
-
-# Quadseasonal season mapping:
-#   LRS     = Mar–Jun, LRS_dry = Jul–Sep
-#   SRS     = Oct–Dec, SRS_dry = Jan–Feb
-# Year label attaches to the year the SRS starts (e.g. 2018SRS_dry = Jan–Feb 2019).
-_QUADSEASONAL = {
-    "2018_10": "2018SRS", "2018_11": "2018SRS", "2018_12": "2018SRS",
-    "2019_01": "2018SRS_dry", "2019_02": "2018SRS_dry",
-    "2019_03": "2019LRS", "2019_04": "2019LRS", "2019_05": "2019LRS", "2019_06": "2019LRS",
-    "2019_07": "2019LRS_dry", "2019_08": "2019LRS_dry", "2019_09": "2019LRS_dry",
-    "2019_10": "2019SRS", "2019_11": "2019SRS", "2019_12": "2019SRS",
-    "2020_01": "2019SRS_dry", "2020_02": "2019SRS_dry",
-    "2020_03": "2020LRS", "2020_04": "2020LRS", "2020_05": "2020LRS", "2020_06": "2020LRS",
-    "2020_07": "2020LRS_dry", "2020_08": "2020LRS_dry", "2020_09": "2020LRS_dry",
-    "2020_10": "2020SRS", "2020_11": "2020SRS", "2020_12": "2020SRS",
-}
-
-
-def _iso_to_quadseasonal_folder(iso_date: str) -> str:
-    """Convert '2020_05_01' → '2020LRS'."""
-    parts = iso_date.split("_")
-    key = f"{parts[0]}_{parts[1]}"
-    folder = _QUADSEASONAL.get(key)
-    if folder is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No quadseasonal prediction for {iso_date} (valid range: 2018-10 to 2020-12)",
-        )
-    return folder
+    y, m, d = parts
+    return f"{y}_{m.zfill(2)}_{d.zfill(2)}"
 
 
 def _flatten_prediction_properties(props: dict, feature_labels: dict) -> dict:
@@ -270,41 +244,54 @@ async def prediction_dates(request: Request):
     return {"dates": dates}
 
 
+_VALID_MODEL_TYPES = {
+    "livestock-mortality-monthly",
+    "livestock-mortality-biannual",
+    "livestock-mortality-quadseasonal",
+    # Accept the un-suffixed alias too — for direct API consumers
+    "livestock-mortality",
+}
+
+
 @router.get("/predictions/{model_type}/{period}")
 async def prediction_ward_data(request: Request, model_type: str, period: str):
     """Serve ward prediction data for PRISM admin_level_data layers.
 
     model_type: 'livestock-mortality-monthly', 'livestock-mortality-biannual',
                 or 'livestock-mortality-quadseasonal'
-    period: e.g. '2019_01_01', '2019_04_01', '2020_05_01'
+    period: e.g. '2026-04-01' (PRISM hyphen format) or '2026_04_01'
+
+    Postprocess writes every scheme's predictions under a single shared S3
+    prefix `predictions/livestock-mortality/{YYYY_MM_DD}/`, with the date
+    encoding the season (end-of-period date) implicitly. The model_type
+    arg is validated for API correctness but not used for S3 lookup —
+    each frontend layer's `dates: [...]` array already restricts requests
+    to dates that exist for that scheme.
     """
+    if model_type not in _VALID_MODEL_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid model_type: {model_type}. Must be one of "
+                + ", ".join(sorted(_VALID_MODEL_TYPES))
+            ),
+        )
+
     config = request.app.state.config
     bucket = config.global_.s3_bucket
     region = config.global_.region
     predictions_prefix = config.serve.predictions_prefix
     feature_labels = config.feature_labels
 
-    if model_type == "livestock-mortality-monthly":
-        folder = _iso_to_monthly_folder(period)
-    elif model_type == "livestock-mortality-biannual":
-        folder = _iso_to_biannual_folder(period)
-    elif model_type == "livestock-mortality-quadseasonal":
-        folder = _iso_to_quadseasonal_folder(period)
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid model_type: {model_type}. Must be one of "
-                "'livestock-mortality-monthly', 'livestock-mortality-biannual', "
-                "'livestock-mortality-quadseasonal'"
-            ),
-        )
-
-    key = f"{predictions_prefix}/{model_type}/{folder}/ward_predictions.geojson"
+    date_key = _normalize_date_key(period)
+    key = f"{predictions_prefix}/livestock-mortality/{date_key}/ward_predictions.geojson"
     geojson = fetch_json_from_s3(bucket, key, region)
 
     if geojson is None:
-        raise HTTPException(status_code=404, detail=f"No predictions found for {model_type}/{period}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No predictions found for {model_type}/{period} at s3://{bucket}/{key}",
+        )
 
     features = geojson.get("features", [])
     data = [_flatten_prediction_properties(f["properties"], feature_labels) for f in features]

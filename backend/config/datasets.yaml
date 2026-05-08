@@ -4,7 +4,7 @@
 global:
   region: "us-east-1"
   schedule_interval_days: 10
-  s3_bucket: "lmr-data-cogs-dev"
+  s3_bucket: "lmr-data-cogs-local"
   s3_prefix: "ingested"
   log_level: "INFO"
 
@@ -52,7 +52,7 @@ datasets:
     collection: "modis-13Q1-061"
     assets: ["250m_16_days_NDVI"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 250
@@ -60,11 +60,11 @@ datasets:
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
   - name: "modis-evi"
-    enabled: true
+    enabled: false
     collection: "modis-13Q1-061"
     assets: ["250m_16_days_EVI"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 250
@@ -73,11 +73,11 @@ datasets:
 
   # ── MODIS LAI / FPAR (500m, 8-day) ──────────────────────────────────────
   - name: "modis-lai"
-    enabled: true
+    enabled: false
     collection: "modis-15A2H-061"
     assets: ["Lai_500m"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 500
@@ -85,11 +85,11 @@ datasets:
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
   - name: "modis-fpar"
-    enabled: true
+    enabled: false
     collection: "modis-15A2H-061"
     assets: ["Fpar_500m"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 500
@@ -102,7 +102,7 @@ datasets:
     collection: "modis-11A2-061"
     assets: ["LST_Day_1km"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 1000
@@ -110,11 +110,11 @@ datasets:
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
   - name: "modis-lst-night"
-    enabled: true
+    enabled: false
     collection: "modis-11A2-061"
     assets: ["LST_Night_1km"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 1000
@@ -122,12 +122,16 @@ datasets:
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
   # ── MODIS Surface Reflectance (500m, 8-day) ─────────────────────────────
+  # Trimmed for local-offline branch: only B02 (NIR) + B06 (SWIR1) needed for
+  # NDWI/LSWI features used by biannual+monthly models. Drops B01 (red, only
+  # feeds SAVI/MSAVI/etc. which aren't model features) and B07 (SWIR2, only
+  # feeds NBR which isn't a model feature).
   - name: "modis-sr"
     enabled: true
     collection: "modis-09A1-061"
-    assets: ["sur_refl_b01", "sur_refl_b02", "sur_refl_b06", "sur_refl_b07"]
+    assets: ["sur_refl_b02", "sur_refl_b06"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 500
@@ -177,13 +181,13 @@ datasets:
   # MOD16A2GF.061 — gap-filled, ~6 week lag. Replaces annual PC source.
   # Requires EARTHDATA_USERNAME / EARTHDATA_PASSWORD env vars.
   - name: "modis-et-8day"
-    enabled: true
+    enabled: false
     source: "nasa_earthdata"
     hdf_subdataset: "ET_500m"
     collection: "MOD16A2GF.061"
     assets: ["ET_500m"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 500
@@ -191,13 +195,13 @@ datasets:
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
   - name: "modis-pet-8day"
-    enabled: true
+    enabled: false
     source: "nasa_earthdata"
     hdf_subdataset: "PET_500m"
     collection: "MOD16A2GF.061"
     assets: ["PET_500m"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 500
@@ -290,10 +294,12 @@ datasets:
       crs: "EPSG:4326"
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
+  # Enabled for local-offline: needed by all 3 models (jrc_occurrence feature).
+  # seasonality dropped — none of the 3 models use it.
   - name: "jrc-water"
-    enabled: false
+    enabled: true
     collection: "jrc-gsw"
-    assets: ["occurrence", "seasonality"]
+    assets: ["occurrence"]
     temporal:
       lookback_days: 36500
     processing:
@@ -302,15 +308,19 @@ datasets:
       crs: "EPSG:4326"
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
+  # Enabled for local-offline: needed by all 3 models (wc_water, wc_builtup, wc_cropland features).
+  # Resolution bumped from 10m -> 100m for local-offline: 10m × Kenya bbox ≈ 10B pixels
+  # would OOM during the 12-tile merge on a typical 8 GiB laptop. Model uses worldcover
+  # for class fractions in a 20km window — 100m is still 200×200 pixels per window.
   - name: "worldcover"
-    enabled: false
+    enabled: true
     collection: "esa-worldcover"
     assets: ["map"]
     temporal:
       lookback_days: 36500
     processing:
       output_format: "cog"
-      resolution_m: 10
+      resolution_m: 100
       crs: "EPSG:4326"
     s3_key_template: "{prefix}/{dataset}/{date}/{asset}.tif"
 
@@ -323,7 +333,7 @@ datasets:
     collection: "chirps-v2.0"
     assets: ["ppt"]
     temporal:
-      lookback_days: 90
+      lookback_days: 730
     processing:
       output_format: "cog"
       resolution_m: 5000
@@ -344,7 +354,7 @@ datasets:
     collection: "reanalysis-era5-land-monthly-means"
     assets: ["swvl1", "swvl2", "swvl3", "swvl4"]
     temporal:
-      lookback_days: 90
+      lookback_days: 730
     processing:
       output_format: "cog"
       resolution_m: 9000
@@ -360,11 +370,11 @@ datasets:
 
   # GPP — gap-filled 8-day product matches v3 pipeline (modis-17A2HGF-061)
   - name: "modis-gpp"
-    enabled: true
+    enabled: false
     collection: "modis-17A2HGF-061"
     assets: ["Gpp_500m"]
     temporal:
-      lookback_days: 1100
+      lookback_days: 730  # 24 months for local-offline branch
     processing:
       output_format: "cog"
       resolution_m: 500
@@ -376,14 +386,14 @@ datasets:
 # Times are cron-style in the specified timezone (IANA format).
 # Estimated savings: ~60% of Fargate serve cost (~$55/mo on a 10hr/day schedule).
 schedule:
-  enabled: true
-  start_hour: 8    # Scale up to 1 task at 8:00 AM
-  stop_hour: 18    # Scale down to 0 tasks at 6:00 PM
+  enabled: false   # Local-offline: serve runs continuously while compose is up.
+  start_hour: 8
+  stop_hour: 18
   timezone: "America/Los_Angeles"
 
 # Serve mode configuration
 serve:
-  cors_origins: ["*"]
+  cors_origins: ["http://localhost:3000", "http://localhost:8000"]
   presigned_url_expiry_seconds: 3600
   predictions_prefix: "predictions"
 
@@ -393,19 +403,19 @@ serve:
 inference:
   enabled: true
   model_name: "livestock-mortality"
-  model_s3_prefix: "s3://lmr-data-cogs-dev/models/inference_bundle"
+  model_s3_prefix: "s3://lmr-data-cogs-local/models/inference_bundle"
   ward_boundaries_s3_key: "models/geoBoundaries-KEN-ADM3.geojson"
-  output_bucket: "lmr-data-cogs-dev"
+  output_bucket: "lmr-data-cogs-local"
   output_prefix: "predictions/livestock-mortality"
   boundary_file: "boundaries/kenya_wards.geojson"
   schemes:
     - biannual
     - quadseasonal
     - monthly
-  feature_window_months: 36
+  feature_window_months: 24  # Local-offline: matches dataset lookback_days=730
   n_sample_points: 9
   # Source satellite parquets for feature extraction
-  source_data_bucket: "lmr-data-cogs-dev"
+  source_data_bucket: "lmr-data-cogs-local"
   source_data_prefix: "parquets"
 
 # Feature labels for prediction tooltips

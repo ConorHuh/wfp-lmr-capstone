@@ -1,0 +1,87 @@
+# Local-offline stack for the LMR platform.
+# See docs/LOCAL_OFFLINE.md for setup, prerequisites, and the full run-through.
+#
+# Bring everything up:    docker compose -f docker-compose.local.yml up -d
+# Bring everything down:  docker compose -f docker-compose.local.yml down
+# Run a one-shot CLI cmd: docker compose -f docker-compose.local.yml run --rm lmr-cli <args>
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: lmr-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"      # S3 API
+      - "9001:9001"      # MinIO console
+    volumes:
+      - ${HOME}/lmr-local-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [lmr-net]
+
+  lmr-serve:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lmr-serve
+    depends_on:
+      minio:
+        condition: service_healthy
+    command: ["--mode", "serve", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment: &lmr-env
+      # boto3 — single endpoint override for the entire S3 client surface
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_DEFAULT_REGION: us-east-1
+      # rasterio / GDAL — different env var names, also needed for /vsis3/ reads
+      AWS_S3_ENDPOINT: minio:9000
+      AWS_VIRTUAL_HOSTING: "FALSE"
+      AWS_HTTPS: "NO"
+      # Ingest auth — supply via .env or shell export before bringing the stack up
+      EARTHDATA_USERNAME: ${EARTHDATA_USERNAME:-}
+      EARTHDATA_PASSWORD: ${EARTHDATA_PASSWORD:-}
+      CDSAPI_URL: ${CDSAPI_URL:-https://cds.climate.copernicus.eu/api}
+      CDSAPI_KEY: ${CDSAPI_KEY:-}
+    networks: [lmr-net]
+
+  # Same image as lmr-serve, no long-running command — used for one-shot
+  # CLI runs (ingest, feature-extract, infer, build_parquets.py) via
+  #   docker compose -f docker-compose.local.yml run --rm lmr-cli ...
+  # Bind-mounts ./infra so build_parquets.py can be edited and re-run
+  # without rebuilding the image.
+  lmr-cli:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles: ["cli"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment: *lmr-env
+    volumes:
+      - ./infra:/app/infra:ro
+    networks: [lmr-net]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: lmr-frontend
+    depends_on:
+      - lmr-serve
+    ports:
+      - "3000:80"
+    networks: [lmr-net]
+
+networks:
+  lmr-net:
+    driver: bridge

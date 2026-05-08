@@ -1,0 +1,95 @@
+# Local-offline PRISM frontend.
+#
+# Mirrors the steps in infra/deploy-all.sh phase 4 (clone, inject kenya_config,
+# register in config index, apply patches, build prism-common + frontend) and
+# serves the resulting dist/ from nginx on port 80.
+#
+# All in-build URL substitution is done with the GNU sed flag -i (no empty arg).
+
+# ── Stage 1: build PRISM with kenya_config ──────────────────────
+FROM node:20-bullseye AS builder
+
+ARG PRISM_REPO=https://github.com/WFP-VAM/prism-app.git
+ARG PRISM_COMMIT=6f22f3b6063ad813f3277fa312b23bb0c9bbbab0
+
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+RUN git clone --quiet "$PRISM_REPO" prism \
+    && cd prism \
+    && git checkout --quiet "$PRISM_COMMIT"
+
+# Inject the Kenya config (mirrors deploy-all.sh:352-389)
+COPY frontend/kenya_config /build/kenya_config
+COPY frontend/patches /build/patches
+
+RUN set -eux; \
+    KENYA_DST=/build/prism/frontend/src/config/kenya; \
+    mkdir -p "$KENYA_DST"; \
+    cp /build/kenya_config/layers.json "$KENYA_DST/layers.json"; \
+    cp /build/kenya_config/prism.json "$KENYA_DST/prism.json"; \
+    cat > "$KENYA_DST/index.ts" <<'INDEXEOF'
+import appConfig from './prism.json';
+import rawLayers from './layers.json';
+
+const translation = {
+  en: { 'Admin 1': 'Province', 'Admin 2': 'District', 'Admin 3': 'Ward' },
+};
+const rawTables = {};
+const rawReports = {};
+
+export default {
+  appConfig,
+  rawLayers,
+  rawReports,
+  rawTables,
+  translation,
+  defaultBoundariesFile: 'ken_bnd_adm3_WFP.json',
+};
+INDEXEOF
+
+# Register Kenya in config/index.ts (use GNU sed: no empty arg)
+RUN sed -i "s|import jordan from './jordan';|import jordan from './jordan';\nimport kenya from './kenya';|" \
+        /build/prism/frontend/src/config/index.ts && \
+    sed -i "s|  jordan,|  jordan,\n  kenya,|" \
+        /build/prism/frontend/src/config/index.ts
+
+# Copy admin boundaries + dashboard config.
+# PRISM fetches /data/<country>/dashboard.json on load. Without this file the
+# SPA fallback returns index.html and PRISM throws "Dashboard configuration is
+# not valid JSON". {"reports":[]} satisfies the validator and tells PRISM
+# there are no reports to render.
+RUN mkdir -p /build/prism/frontend/public/data/kenya && \
+    cp /build/kenya_config/admin_boundaries.geojson \
+       /build/prism/frontend/public/data/kenya/ken_bnd_adm3_WFP.json && \
+    cp /build/kenya_config/dashboard.json \
+       /build/prism/frontend/public/data/kenya/dashboard.json
+
+# Apply patches if present
+RUN set -eux; \
+    if [ -d /build/patches ]; then \
+        cd /build/prism; \
+        for p in /build/patches/*.patch; do \
+            [ -f "$p" ] || continue; \
+            git apply "$p"; \
+        done; \
+    fi
+
+# Build prism-common, then the frontend
+RUN cd /build/prism/common && yarn install --network-timeout 600000 && yarn build
+RUN cd /build/prism/frontend && yarn install --network-timeout 600000
+RUN cd /build/prism/frontend && \
+    REACT_APP_COUNTRY=kenya npx cross-env vite build
+
+# ── Stage 2: nginx runtime ─────────────────────────────────────
+FROM nginx:1.27-alpine
+
+# PRISM emits to dist/ (vite default)
+COPY --from=builder /build/prism/frontend/build/ /usr/share/nginx/html/
+
+# Custom nginx config — proxies /api/* to lmr-serve, serves SPA shell otherwise
+COPY frontend/local-nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80

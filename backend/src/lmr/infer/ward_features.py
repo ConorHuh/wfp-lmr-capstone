@@ -636,7 +636,16 @@ def run_extraction(
 
 def compute_dem_roughness(ward_lats, ward_lons):
     log.info("Computing DEM terrain roughness...")
-    df = s3_load_parquet(pixel_key("dem"))
+    n = len(ward_lats)
+    try:
+        df = s3_load_parquet(pixel_key("dem"))
+    except Exception as e:
+        # dem.parquet may not exist (DEM disabled in datasets.yaml). Return NaN
+        # so downstream preprocessing imputes from train_medians. dem_std /
+        # dem_range aren't used by the biannual / quadseasonal / monthly models
+        # in the local-offline branch.
+        log.warning("  dem.parquet not available (%s); returning NaN dem_std/dem_range", type(e).__name__)
+        return np.full(n, np.nan, dtype="float32"), np.full(n, np.nan, dtype="float32")
     val_candidates = [c for c in df.columns if c not in META_COLS]
     val_col = next((c for c in ["value", "dem"] if c in val_candidates),
                    val_candidates[0])
