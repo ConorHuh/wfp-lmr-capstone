@@ -4,7 +4,9 @@ End-to-end LMR platform running on a single laptop against a MinIO bucket.
 **Storage and serving are fully local; ingest still reaches out to the public
 internet** (Microsoft Planetary Computer, NASA Earthdata, Copernicus CDS,
 UCSB CHIRPS) for raw remote-sensing data — same as a real customer deploy.
-
+The data sources outside Planetary Computer were necessary for static datasets and
+two layers not available in PC. All of these data sources are free. 
+NASA Earthdata and Copernicus CDS require registration.
 This branch is **deliberately divergent from `main`**. It points buckets at
 `lmr-data-cogs-local`, prunes datasets to the model's actual feature
 dependencies, downsamples a couple of static layers to fit in 8 GB RAM, and
