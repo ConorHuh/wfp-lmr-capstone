@@ -6,9 +6,9 @@ You need:
 
 - **Docker**, installed and running, with **at least 8 GB memory**
   allocated.
-- A **NASA Earthdata account** — free signup at
+- A **NASA Earthdata account**: free signup at
   https://urs.earthdata.nasa.gov/users/new
-- A **Copernicus CDS account** with the **ERA5-Land licence accepted** —
+- A **Copernicus CDS account** with the **ERA5-Land licence accepted**:
   free signup at https://cds.climate.copernicus.eu/, then accept the
   licence at
   https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-monthly-means?tab=download#manage-licences
