@@ -4,8 +4,8 @@
 Note: The data sources outside Planetary Computer were necessary for static datasets and two layers not available in PC. All of these data sources are free. NASA Earthdata and Copernicus CDS require registration.
 You need:
 
-- **Docker Desktop**, installed and running, with **at least 8 GB memory**
-  allocated (Docker Desktop → Settings → Resources → Memory).
+- **Docker**, installed and running, with **at least 8 GB memory**
+  allocated.
 - A **NASA Earthdata account** — free signup at
   https://urs.earthdata.nasa.gov/users/new
 - A **Copernicus CDS account** with the **ERA5-Land licence accepted** —
@@ -69,6 +69,6 @@ accounts.
 # Re-run feature/infer only without re-pulling raw data:
 ./infra/test-pipeline.sh --window 2months --skip-bootstrap --skip-ingest
 ```
-
+If you see perm
 When you see **`✓ ALL GREEN`** at the end, open
 http://localhost:3000 in your browser.
