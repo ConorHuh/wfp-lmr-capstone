@@ -949,7 +949,15 @@ def run_feature_engineering(df: pd.DataFrame, wards: pd.DataFrame) -> pd.DataFra
     df = tier4_longterm_ndvi(df)
 
     log.info("Adding month dummies (m_2 to m_12)...")
-    dummies = pd.get_dummies(df["month"], prefix="m", drop_first=True, dtype="float32")
+    # Build the full m_1..m_12 set first, zero-fill any month not present in df,
+    # then drop m_1 to match training. The previous form used drop_first=True on
+    # whatever months happened to be in df — which silently produced fewer
+    # than 11 columns whenever the time window didn't span a full year, and
+    # that leaks downstream as "Input parquet is missing feature column m_*"
+    # at preprocess time.
+    dummies = pd.get_dummies(df["month"], prefix="m", dtype="float32")
+    expected = [f"m_{i}" for i in range(1, 13)]
+    dummies = dummies.reindex(columns=expected, fill_value=0.0).drop(columns=["m_1"])
     df = pd.concat([df, dummies], axis=1)
     return df.sort_values(JOIN_KEYS).reset_index(drop=True)
 
