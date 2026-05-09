@@ -1,7 +1,7 @@
 # Quickstart — Run LMR Locally on Mac
 
 ## Before you start
-Note: The data sources outside Planetary Computer were necessary for static datasets and two layers not available in PC. All of these data sources are free. NASA Earthdata and Copernicus CDS require registration.
+Note: The data sources outside Planetary Computer (PC) were necessary for static datasets and two layers not available in PC. All of these data sources are free. NASA Earthdata and Copernicus CDS require registration.
 You need:
 
 - **Docker**, installed and running, with **at least 8 GB memory**
