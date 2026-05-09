@@ -1,0 +1,8 @@
+# Force LF line endings on shell scripts and Python so they run cleanly on
+# macOS / Linux even if the working tree was last touched on Windows with
+# core.autocrlf=true. Without this, scripts checked out on macOS contain
+# CRLF and bash heredocs / shebangs break in non-obvious ways.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf

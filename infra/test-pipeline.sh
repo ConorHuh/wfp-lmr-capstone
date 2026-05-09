@@ -164,9 +164,82 @@ log "Inference — biannual / quadseasonal / monthly"
 "$PIPELINE" infer
 ok "Inference complete (predictions in s3://lmr-data-cogs-local/predictions/)"
 
-# ─── serve + frontend ───────────────────────────────────────────────────────
-log "Starting lmr-serve + frontend"
-"${DC[@]}" up -d lmr-serve frontend
+# ─── serve (bring up first so we can query for fresh dates) ─────────────────
+log "Starting lmr-serve"
+"${DC[@]}" up -d lmr-serve
+for _ in {1..15}; do
+    curl -sfo /dev/null http://localhost:8000/health && break
+    sleep 2
+done
+
+# ─── refresh layers.json + rebuild frontend with current MinIO state ────────
+# PRISM bakes layers.json into the bundle at build time. If we don't refresh
+# before rebuilding, the date pickers stay frozen at whatever was committed.
+log "Refreshing frontend dates from /collections + /predictions"
+python3 - <<'PYEOF'
+import json
+import urllib.request
+
+LAYERS_PATH = "frontend/kenya_config/layers.json"
+
+def fetch(url):
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        return json.loads(resp.read())
+
+preds_raw = fetch("http://localhost:8000/predictions/livestock-mortality/dates")["dates"]
+preds = [d.replace("_", "-") for d in preds_raw]
+monthly  = sorted(d for d in preds if d.endswith("-01"))
+biannual = sorted(d for d in preds if d.endswith("-02-28") or d.endswith("-09-30"))
+quad     = sorted(d for d in preds if d.endswith(("-02-28", "-04-30", "-09-30", "-11-30")))
+
+collections = fetch("http://localhost:8000/collections")["collections"]
+dataset_dates = {
+    c["name"]: sorted(d.replace("_", "-") for d in c.get("available_dates", []))
+    for c in collections
+}
+
+RASTER_LAYERS = {
+    "modis_ndvi":      "modis-ndvi",
+    "modis_evi":       "modis-evi",
+    "modis_lst_day":   "modis-lst-day",
+    "modis_lst_night": "modis-lst-night",
+    "modis_lai":       "modis-lai",
+    "modis_fpar":      "modis-fpar",
+    "modis_gpp":       "modis-gpp",
+    "modis_sr_red":    "modis-sr",
+    "modis_sr_nir":    "modis-sr",
+}
+
+with open(LAYERS_PATH) as f:
+    layers = json.load(f)
+
+for layer_id, dates in (
+    ("predictions_monthly", monthly),
+    ("predictions_biannual", biannual),
+    ("predictions_quadseasonal", quad),
+):
+    if layer_id in layers and dates:
+        layers[layer_id]["dates"] = dates
+        print(f"  {layer_id:30s} {len(dates):3d} dates  {dates[0]} -> {dates[-1]}")
+
+for layer_id, dataset in RASTER_LAYERS.items():
+    if layer_id not in layers:
+        continue
+    dates = dataset_dates.get(dataset, [])
+    if dates:
+        layers[layer_id]["dates"] = dates
+        print(f"  {layer_id:30s} {len(dates):3d} dates  {dates[0]} -> {dates[-1]}")
+
+with open(LAYERS_PATH, "w") as f:
+    json.dump(layers, f, indent=2)
+PYEOF
+ok "layers.json updated"
+
+log "Rebuilding frontend image (~1-2 min, mostly cached)"
+"${DC[@]}" build frontend
+
+log "Recreating frontend container with fresh image"
+"${DC[@]}" up -d --force-recreate frontend
 sleep 5
 
 # ─── endpoint validation ─────────────────────────────────────────────────────
