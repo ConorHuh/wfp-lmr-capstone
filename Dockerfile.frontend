@@ -25,30 +25,17 @@ RUN git clone --quiet "$PRISM_REPO" prism \
 COPY frontend/kenya_config /build/kenya_config
 COPY frontend/patches /build/patches
 
+# Copy the kenya config files into PRISM's src/config/kenya/.
+# The Dockerfile-flavoured index.ts is shipped as a real file in the repo
+# (frontend/kenya_config/dockerfile_index.ts) rather than written via a
+# heredoc inside RUN — heredocs in chained RUN commands are fragile across
+# Docker engines (works on Docker Desktop, broken on Colima).
 RUN set -eux; \
     KENYA_DST=/build/prism/frontend/src/config/kenya; \
     mkdir -p "$KENYA_DST"; \
-    cp /build/kenya_config/layers.json "$KENYA_DST/layers.json"; \
-    cp /build/kenya_config/prism.json "$KENYA_DST/prism.json"; \
-    cat > "$KENYA_DST/index.ts" <<'INDEXEOF'
-import appConfig from './prism.json';
-import rawLayers from './layers.json';
-
-const translation = {
-  en: { 'Admin 1': 'Province', 'Admin 2': 'District', 'Admin 3': 'Ward' },
-};
-const rawTables = {};
-const rawReports = {};
-
-export default {
-  appConfig,
-  rawLayers,
-  rawReports,
-  rawTables,
-  translation,
-  defaultBoundariesFile: 'ken_bnd_adm3_WFP.json',
-};
-INDEXEOF
+    cp /build/kenya_config/layers.json    "$KENYA_DST/layers.json"; \
+    cp /build/kenya_config/prism.json     "$KENYA_DST/prism.json"; \
+    cp /build/kenya_config/dockerfile_index.ts "$KENYA_DST/index.ts"
 
 # Register Kenya in config/index.ts (use GNU sed: no empty arg)
 RUN sed -i "s|import jordan from './jordan';|import jordan from './jordan';\nimport kenya from './kenya';|" \
