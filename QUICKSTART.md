@@ -12,7 +12,7 @@ You need:
   free signup at https://cds.climate.copernicus.eu/, then accept the
   licence at
   https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-monthly-means?tab=download#manage-licences
-- The **model bundle archive** you were sent (a `.tar.gz` file).
+- The **model bundle folder**
 
 ## 1. Get the repository
 
