@@ -69,6 +69,7 @@ accounts.
 # Re-run feature/infer only without re-pulling raw data:
 ./infra/test-pipeline.sh --window 2months --skip-bootstrap --skip-ingest
 ```
-If you see perm
+If you see permissions error: use chmod +x infra/*.sh
+
 When you see **`✓ ALL GREEN`** at the end, open
 http://localhost:3000 in your browser.
