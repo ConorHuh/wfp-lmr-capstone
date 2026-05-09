@@ -102,6 +102,17 @@ if [[ $SKIP_INGEST -eq 0 ]]; then
             -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
             -e CDSAPI_URL -e CDSAPI_KEY \
             lmr-cli --mode ingest --start-date "$START_DATE"
+
+        # Static datasets (jrc-water 2020, worldcover 2021) fall outside the
+        # 65-day smoke window. Run a second pass with NO --start-date so they
+        # pull via their full lookback_days=36500. Already-ingested dynamic
+        # datasets get skipped via the existing-dates check inside cli.py —
+        # only the statics actually do work here (~3 min).
+        log "Ingest pass 2 — pull static datasets (jrc-water, worldcover)"
+        "${DC[@]}" --profile cli run --rm \
+            -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
+            -e CDSAPI_URL -e CDSAPI_KEY \
+            lmr-cli --mode ingest
     else
         log "Ingest — full 24 months (uses lookback_days=730 from datasets.yaml)"
         "${DC[@]}" --profile cli run --rm \
