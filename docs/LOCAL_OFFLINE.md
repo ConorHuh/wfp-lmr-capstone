@@ -146,7 +146,7 @@ features that any model consumes:
   `chirps-rainfall`, `era5-soil-moisture` — temporal
 - `jrc-water` (occurrence asset only), `worldcover` — static
 
-Collections not included in model data are excluded for efficiency.
+Collections not included in model data are excluded for speed.
 `feature_extract.py:DEFAULT_SKIP_COLLECTIONS` was extended to match so
 feature extraction doesn't crash trying to open parquets for the disabled
 ones.
