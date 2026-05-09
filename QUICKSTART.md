@@ -24,12 +24,6 @@ cd wfp-lmr-capstone
 
 ## 2. Place the bundle at `~/lmr-bundle/`
 
-Extract the archive you received:
-
-```bash
-tar -xzf ~/Downloads/lmr-bundle.tar.gz -C ~
-```
-
 Verify the structure:
 
 ```bash
