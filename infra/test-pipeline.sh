@@ -167,10 +167,20 @@ ok "Inference complete (predictions in s3://lmr-data-cogs-local/predictions/)"
 # ─── serve (bring up first so we can query for fresh dates) ─────────────────
 log "Starting lmr-serve"
 "${DC[@]}" up -d lmr-serve
-for _ in {1..15}; do
-    curl -sfo /dev/null http://localhost:8000/health && break
+# /health goes green before /collections is ready (S3 client init lags). The
+# refresh step below needs /collections to actually respond, so wait on both.
+# Skipping this wait causes the refresh's urlopen() to raise and (via set -e)
+# kill the pipeline before the frontend rebuild — leaving a stale layers.json
+# baked into the image.
+for _ in {1..30}; do
+    if curl -sfo /dev/null http://localhost:8000/health \
+       && curl -sfo /dev/null http://localhost:8000/collections; then
+        break
+    fi
     sleep 2
 done
+curl -sfo /dev/null http://localhost:8000/collections \
+    || die "lmr-serve /collections never became reachable in 60s"
 
 # ─── refresh layers.json + rebuild frontend with current MinIO state ────────
 # PRISM bakes layers.json into the bundle at build time. If we don't refresh
