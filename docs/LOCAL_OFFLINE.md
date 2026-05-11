@@ -25,8 +25,6 @@ end-to-end. See "How this differs from main" below. DO NOT MERGE
   Memory. *Windows/WSL2:* `~/.wslconfig` → `[wsl2]\nmemory=8GB`. The default
   on a fresh Docker Desktop install is 4 GB, which OOM-kills the static-layer
   merge step.
-- ~80 GB free disk for COGs + parquets + Docker images at full 24-month lookback.
-  Less if you trim lookback to 60 days for a smoke test.
 - [Free NASA Earthdata account][nasa] (sign up at the link).
 - [Free Copernicus CDS account][cds] with the [ERA5-Land licence accepted][era5-licence].
 - The **model bundle** delivered to you out-of-band (`.joblib` files; not in
