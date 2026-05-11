@@ -76,3 +76,22 @@ If you see permissions error: use ````chmod +x infra/*.sh````
 
 When you see **`✓ ALL GREEN`** at the end, open
 http://localhost:3000 in your browser.
+
+## 5. Verify it worked
+
+```
+URL: http://localhost:3000
+What you should see: PRISM frontend.
+────────────────────────────────────────
+URL: http://localhost:8000/health
+What you should see: {"status":"ok"}
+────────────────────────────────────────
+URL: http://localhost:8000/collections
+What you should see: JSON list of datasets with their available dates
+────────────────────────────────────────
+URL: http://localhost:8000/predictions/livestock-mortality/dates
+What you should see: JSON list of prediction dates
+────────────────────────────────────────
+URL: http://localhost:9001
+What you should see: MinIO console — login minioadmin / minioadmin, browse the bucket to confirm COGs, parquets, predictions are all there
+```
