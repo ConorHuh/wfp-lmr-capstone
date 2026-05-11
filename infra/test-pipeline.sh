@@ -5,6 +5,7 @@
 # Usage:
 #   ./infra/test-pipeline.sh --window 2months   # smoke test, ~30-60 min
 #   ./infra/test-pipeline.sh --window 2years    # full run, several hours
+#   ./infra/test-pipeline.sh --window 5years    # extended run, much longer
 #
 # Optional flags:
 #   --skip-bootstrap    don't re-upload bundle (skip if MinIO already has it)
@@ -42,7 +43,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "$WINDOW" =~ ^(2months|2years)$ ]] || { echo "ERROR: --window must be 2months or 2years"; usage; }
+[[ "$WINDOW" =~ ^(2months|2years|5years)$ ]] || { echo "ERROR: --window must be 2months, 2years, or 5years"; usage; }
 
 log()  { printf "\n\033[1;36m=== %s ===\033[0m\n" "$*"; }
 ok()   { printf "\033[1;32m✓\033[0m %s\n" "$*"; }
@@ -113,12 +114,27 @@ if [[ $SKIP_INGEST -eq 0 ]]; then
             -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
             -e CDSAPI_URL -e CDSAPI_KEY \
             lmr-cli --mode ingest
-    else
+    elif [[ "$WINDOW" == "2years" ]]; then
         log "Ingest — full 24 months (uses lookback_days=730 from datasets.yaml)"
         "${DC[@]}" --profile cli run --rm \
             -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
             -e CDSAPI_URL -e CDSAPI_KEY \
             lmr-cli --mode ingest
+    else
+        # 5-year window: overrides the per-dataset lookback_days defaults
+        # (most are 730 days). Some collections may have shorter retention
+        # at the upstream provider — the ingest will simply pull whatever
+        # is available in the requested range.
+        if date -u -v-1825d '+%Y-%m-%d' >/dev/null 2>&1; then
+            START_DATE=$(date -u -v-1825d '+%Y-%m-%d')   # BSD date (macOS)
+        else
+            START_DATE=$(date -u -d '1825 days ago' '+%Y-%m-%d')   # GNU date
+        fi
+        log "Ingest — 5-year window (start_date=$START_DATE → today)"
+        "${DC[@]}" --profile cli run --rm \
+            -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
+            -e CDSAPI_URL -e CDSAPI_KEY \
+            lmr-cli --mode ingest --start-date "$START_DATE"
     fi
     ok "Ingest complete"
 else

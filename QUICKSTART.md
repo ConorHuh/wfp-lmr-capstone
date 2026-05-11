@@ -63,6 +63,9 @@ accounts.
 # Full 24-month run (several hours)
 ./infra/test-pipeline.sh --window 2years
 
+# Extended 5-year run
+./infra/test-pipeline.sh --window 5years
+
 # Re-run faster after the first pass (skip uploading the bundle):
 ./infra/test-pipeline.sh --window 2months --skip-bootstrap
 
